@@ -1,0 +1,12 @@
+# 백엔드 의존성 및 캐시 차단
+BE/__pycache__/
+BE/.env
+BE/firebase_config.json
+
+# 프론트엔드 의존성 및 로컬 환경변수 차단
+FE/node_modules/
+FE/.env
+FE/.env.local
+
+# 맥 시스템 파일 차단
+.DS_Store

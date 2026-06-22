@@ -1,0 +1,520 @@
+/* ==========================================
+   기본 리셋 및 배경 설정
+   ========================================== */
+body {
+  background-color: #F8F8F5;
+  font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif;
+  color: #2D2D2A;
+  margin: 0;
+  padding: 40px 20px;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* 대시보드 중앙 배치 */
+.dashboard-container {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ==========================================
+   🧩 상단 바 완벽한 한 줄 정렬 및 크기 고정 스타일
+   ========================================== */
+.search-bar-container {
+  display: flex;
+  gap: 12px;
+  width: 100%;
+  align-items: center; /* 한 줄 정렬 요소를 수직 중앙 정렬 */
+}
+
+/* 검색 인풋을 감싸는 컨테이너 포지션 및 자동 확장 설정 */
+.search-input-wrapper {
+  flex: 1; /* 버튼들을 제외한 남는 빈 공간을 검색창 영역이 꽉 채우도록 설정 */
+  position: relative;
+}
+
+/* 모든 인풋과 버튼의 높이를 48px로 완벽 일치 */
+.search-input,
+.btn-analysis,
+.btn-theme-toggle,
+.btn-header-login,
+.user-profile-box {
+  height: 48px !important;
+  box-sizing: border-box;
+}
+
+/* 실제 입력창 스타일 */
+.search-input {
+  width: 100%;
+  padding: 14px 20px;
+  border: 1px solid #E5E5E0;
+  border-radius: 12px;
+  font-size: 16px;
+  background-color: #ffffff;
+}
+
+.btn-analysis {
+  padding: 0 24px;
+  background-color: #ffffff;
+  border: 1px solid #E5E5E0;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+/* ☀️/🌙 다크모드 토글 버튼 - 가로 폭 절대 고정 ⭐ */
+.btn-theme-toggle {
+  width: 110px !important; /* 텍스트 글자 수와 상관없이 크기 고정 */
+  min-width: 110px !important;
+  background: #ffffff;
+  border: 1px solid #E5E5E0;
+  padding: 0; /* 내부 패딩을 없애고 고정폭 안에서 중앙 정렬 */
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #333330;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center; /* 아이콘과 텍스트 중앙 정렬 */
+  gap: 4px;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* 우측 상단 로그인 통합 버튼 스타일 */
+.btn-header-login {
+  padding: 0 20px;
+  background-color: #333330; /* 세련된 흑색 톤 포인트 */
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 14px;
+  transition: background-color 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.btn-header-login:hover {
+  background-color: #4A4A45;
+}
+
+/* 로그인 성공 후 우측 상단 프로필 레이아웃 */
+.user-profile-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background-color: #ffffff;
+  padding: 0 16px;
+  border: 1px solid #E5E5E0;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.user-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333330;
+}
+
+/* 로그아웃 버튼 스타일 */
+.btn-header-logout {
+  padding: 8px 12px;
+  background-color: #F3F4F6;
+  color: #4B5563;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+.btn-header-logout:hover {
+  background-color: #E5E7EB;
+  color: #1F2937;
+}
+
+/* ==========================================
+   공통 대시보드 구성 요소 스타일
+   ========================================== */
+/* 공통 카드 스타일 디자인 */
+.card {
+  background-color: #ffffff;
+  border-radius: 16px;
+  padding: 20px;
+  border: 1px solid #EAEAE4;
+}
+.card h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #333330;
+}
+
+/* 2. 상단 4열 요약 카드 */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  background-color: #FAFBF8; /* 은은한 크림 화이트 */
+}
+.card-title {
+  font-size: 12px;
+  color: #8A8A82;
+}
+.card-value {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 8px 0 2px 0;
+}
+.card-sub {
+  font-size: 12px;
+}
+
+/* 3. 주의 알림 배너 */
+.alert-banner {
+  background-color: #FBF6E9;
+  border: 1px solid #ECD8A5;
+  color: #785A1A;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* 4 & 5. 대시보드 2열 그리드 레이아웃 설정 */
+.main-content-grid {
+  display: grid;
+  grid-template-columns: 1.8fr 1fr;
+  gap: 16px;
+}
+.sub-content-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.8fr;
+  gap: 16px;
+}
+
+/* 차트 및 신뢰도 도넛 플레이스홀더 스타일 */
+.mock-chart {
+  height: 240px;
+  background-color: #FAFBF9;
+  border: 1px dashed #E0E0DB;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.reliability-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+.mock-donut {
+  width: 120px;
+  height: 120px;
+  background-color: #FAFBF9;
+  border: 6px solid #F59E0B;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+/* 신뢰도 프로그레스 바 정렬 */
+.progress-group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.progress-item {
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+  gap: 10px;
+}
+.progress-item span:first-child {
+  width: 40px;
+  color: #666;
+}
+.bar {
+  flex: 1;
+  background-color: #EDEDE8;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.bar-fill { height: 100%; border-radius: 4px; }
+.info-bar { background-color: #10B981; }
+.sentiment-bar { background-color: #F59E0B; }
+.predict-bar { background-color: #F59E0B; }
+.report-bar { background-color: #10B981; }
+.bar-num { width: 20px; text-align: right; font-weight: 500; }
+
+/* 감성 분석 리스트 정렬 */
+.sentiment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sentiment-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.sentiment-row span:first-child { width: 30px; }
+.mini-bar { flex: 1; background-color: #EDEDE8; height: 14px; border-radius: 4px; overflow: hidden; }
+.mini-bar-fill { height: 100%; }
+.positive-bg { background-color: #D1FAE5; }
+.negative-bg { background-color: #FEE2E2; }
+.neutral-bg { background-color: #E5E7EB; }
+.sentiment-warn {
+  margin-top: 14px;
+  font-size: 12px;
+  color: #B45309;
+}
+.btn-action-outline {
+  width: 100%;
+  padding: 10px;
+  background-color: #F5F5F0;
+  border: 1px solid #E5E5E0;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-top: 12px;
+  font-weight: 500;
+}
+
+/* 최근 뉴스 정렬 */
+.news-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.news-item {
+  border-bottom: 1px solid #F0F0EC;
+  padding-bottom: 10px;
+}
+.news-item:last-child { border-bottom: none; }
+.news-item h4 { margin: 0 0 6px 0; font-size: 14px; font-weight: 500; display: flex; justify-content: space-between; }
+
+/* 하단 리포트 요약 스타일 */
+.report-text {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #4A4A45;
+}
+.report-alert-box {
+  background-color: #FFFBEB;
+  border: 1px solid #FDE68A;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.alert-badge {
+  background-color: #FEF3C7;
+  color: #D97706;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+.report-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+.btn-secondary {
+  padding: 10px 20px;
+  background-color: #ffffff;
+  border: 1px solid #E5E5E0;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* 범용 유틸리티 컬러/배지 */
+.positive { color: #10B981; }
+.negative { color: #EF4444; }
+.text-muted { color: #8A8A82; }
+.font-normal { font-weight: normal; }
+
+.badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge.positive { background-color: #E6F4EA; color: #137333; }
+.badge.negative { background-color: #FCE8E6; color: #C5221F; }
+
+/* 자동완성 전체 박스 모달 */
+.search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px); /* 검색창 바로 밑에 6px 띄우고 배치 */
+  left: 0;
+  width: 100%;
+  background-color: #ffffff;
+  border: 1px solid #E5E5E0;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08); /* 고급스러운 부유 효과 그림자 */
+  z-index: 999; /* 다른 요소에 가려지지 않도록 최상단 고정 */
+  overflow: hidden;
+}
+
+.dropdown-title {
+  padding: 12px 16px 6px 16px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #8A8A82;
+  background-color: #FAFBF9;
+  border-bottom: 1px solid #F0F0EC;
+}
+.dropdown-list {
+  max-height: 280px; /* 항목이 많아지면 스크롤바 생성 */
+  overflow-y: auto;
+}
+.dropdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.15s ease;
+}
+.dropdown-item:hover {
+  background-color: #F5F5F0;
+}
+.dropdown-item .stock-name {
+  font-weight: 500;
+  color: #2D2D2A;
+}
+.dropdown-item .stock-code {
+  font-size: 12px;
+  color: #8A8A82;
+  background-color: #F0F0EC;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.dropdown-no-result {
+  padding: 20px;
+  text-align: center;
+  font-size: 13px;
+  color: #8A8A82;
+}
+
+/* 불필요 정렬 컨테이너 비활성화 */
+.theme-toggle-container {
+  display: none;
+}
+
+/* ==========================================
+   🌙 다크 모드 (Dark Mode) 강제 전환 및 색상 패치 ⭐
+   ========================================== */
+
+/* body에 .dark-mode 클래스가 붙었을 때 전역 배경 색상 강제 전환 */
+body.dark-mode {
+  background-color: #121212 !important;
+  color: #E3E3E3 !important;
+}
+
+/* 다크모드일 때 토글 버튼 스타일 (크기는 110px 무조건 고정) */
+body.dark-mode .btn-theme-toggle {
+  background-color: #1E1E1E !important;
+  border-color: #2D2D2D !important;
+  color: #E3E3E3 !important;
+}
+
+/* 검색창 및 모든 카드 구조 다크 테마 치환 */
+body.dark-mode .search-input,
+body.dark-mode .btn-analysis,
+body.dark-mode .card,
+body.dark-mode .user-profile-box,
+body.dark-mode .search-dropdown {
+  background-color: #1E1E1E !important;
+  border-color: #2D2D2D !important;
+  color: #E3E3E3 !important;
+}
+
+body.dark-mode .search-input::placeholder {
+  color: #666666;
+}
+
+/* 플레이스홀더 영역 및 서브 카드 요소 배경 흐리게 조정 */
+body.dark-mode .summary-card,
+body.dark-mode .mock-chart,
+body.dark-mode .mock-donut,
+body.dark-mode .dropdown-title {
+  background-color: #252525 !important;
+  border-color: #333333 !important;
+}
+
+/* 주요 타이틀 및 종목명 텍스트 선명한 화이트 반전 */
+body.dark-mode .card h3,
+body.dark-mode .card-value,
+body.dark-mode .user-name,
+body.dark-mode .dropdown-item .stock-name {
+  color: #FFFFFF !important;
+}
+
+body.dark-mode .card-title,
+body.dark-mode .text-muted,
+body.dark-mode .dropdown-title,
+body.dark-mode .dropdown-no-result {
+  color: #A0A0A0 !important;
+}
+
+/* 호버 이펙트 및 구분 라인 다크 패치 */
+body.dark-mode .dropdown-item:hover {
+  background-color: #2D2D2A !important;
+}
+body.dark-mode .dropdown-item .stock-code {
+  background-color: #333333 !important;
+  color: #A0A0A0 !important;
+}
+body.dark-mode .news-item {
+  border-bottom-color: #2D2D2D !important;
+}
+body.dark-mode .btn-action-outline {
+  background-color: #252525 !important;
+  border-color: #333333 !important;
+  color: #FFFFFF !important;
+}
+
+/* 프로그레스 바 배경 트랙 */
+body.dark-mode .bar,
+body.dark-mode .mini-bar {
+  background-color: #2D2D2D !important;
+}
+
+/* 알림 및 경고 박스 다크 가독성 패치 */
+body.dark-mode .alert-banner {
+  background-color: #2C1A04 !important;
+  border-color: #603E0B !important;
+  color: #FBBF24 !important;
+}
+body.dark-mode .report-alert-box {
+  background-color: #1A1605 !important;
+  border-color: #453A08 !important;
+  color: #FBBF24 !important;
+}
