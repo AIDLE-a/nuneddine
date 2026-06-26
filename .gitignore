@@ -1,0 +1,5 @@
+config.py
+.DS_Store
+news_api_result.csv
+news_filtered_result.csv
+__pycache__/
