@@ -175,18 +175,19 @@ function App() {
       clearInterval(msgTimer);
       setLoadingMsg('');
       setAnalysis(data);
-      // 로그인 상태면 히스토리 저장
-      if (user) {
-        await saveHistory(user.uid, stock.code, stock.name);
-        const updated = await getHistory(user.uid);
-        setHistory(updated);
-      }
     } catch (e) {
       clearInterval(msgTimer);
       setLoadingMsg('');
       console.warn("백엔드 미연결 — 목데이터로 표시:", e.message);
     } finally {
+      // 로딩 완료 — Firestore 히스토리 저장은 백그라운드로 분리
       setIsLoading(false);
+      if (user) {
+        saveHistory(user.uid, stock.code, stock.name)
+          .then(() => getHistory(user.uid))
+          .then(updated => setHistory(updated))
+          .catch(e => console.warn("히스토리 저장 실패:", e.message));
+      }
     }
   };
 
