@@ -10,7 +10,8 @@ import RecentNewsCard from "./RecentNewsCard.jsx";
 import AiReportCard from "./AiReportCard.jsx";
 import WatchlistPanel from "./WatchlistPanel.jsx";
 import { analyzeStock } from './api.js';
-import { saveHistory, getHistory, addFavorite, removeFavorite, getFavorites } from './firebase.js';
+import { auth, provider, saveHistory, getHistory, addFavorite, removeFavorite, getFavorites } from './firebase.js';
+import { signInWithPopup } from "firebase/auth";
 
 export const MOCK_STOCKS = [
   {
@@ -93,7 +94,33 @@ function App() {
   const isFavorite = favorites.some(f => f.ticker === selectedStock.code);
 
   const handleToggleFavorite = async () => {
-    if (!user) { alert("로그인 후 이용할 수 있습니다."); return; }
+    if (!user) {
+      // 로그인 안 된 상태면 바로 로그인 팝업 열기
+      try {
+        const result = await signInWithPopup(auth, provider);
+        const token = await result.user.getIdToken();
+        const response = await fetch("http://localhost:8000/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
+        });
+        const data = await response.json();
+        if (data.status === "success") {
+          setUser(result.user);
+          const [favs, hist] = await Promise.all([
+            getFavorites(result.user.uid),
+            getHistory(result.user.uid),
+          ]);
+          setFavorites(favs);
+          setHistory(hist);
+          // 로그인 완료 후 바로 관심 종목 추가
+          await addFavorite(result.user.uid, selectedStock.code, selectedStock.name);
+          setFavorites(prev => [...prev, { ticker: selectedStock.code, name: selectedStock.name }]);
+        }
+      } catch (e) {
+        console.error("로그인 실패:", e);
+      }
+      return;
+    }
     if (isFavorite) {
       await removeFavorite(user.uid, selectedStock.code);
       setFavorites(prev => prev.filter(f => f.ticker !== selectedStock.code));

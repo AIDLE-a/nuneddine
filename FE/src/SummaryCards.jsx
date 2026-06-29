@@ -35,9 +35,10 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
             onClick={onToggleFavorite}
             title={isFavorite ? '관심 종목 해제' : '관심 종목 추가'}
             style={{
-              position: 'absolute', top: 12, right: 12,
+              position: 'absolute', top: 10, right: 10,
               background: 'none', border: 'none', cursor: 'pointer',
-              fontSize: 18, lineHeight: 1,
+              fontSize: 20, lineHeight: 1, zIndex: 10,
+              padding: '4px', borderRadius: '6px',
             }}
           >
             {isFavorite ? '⭐' : '☆'}
