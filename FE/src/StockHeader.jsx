@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { initializeApp } from "firebase/app";
 import { getAuth, signInWithPopup, GoogleAuthProvider, signOut } from "firebase/auth";
-import { MOCK_STOCKS } from '../../App.jsx'; // 💡 App.jsx에서 정의한 통합 Mock Data 호출
+import { MOCK_STOCKS } from './App.jsx'; // 💡 App.jsx에서 정의한 통합 Mock Data 호출
 
 // 💡 파이어베이스 웹 앱 키값은 기존에 설정하신 실제 데이터로 유지해 주세요!
 const firebaseConfig = {

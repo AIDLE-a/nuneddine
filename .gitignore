@@ -1,12 +1,55 @@
-# 백엔드 의존성 및 캐시 차단
-BE/__pycache__/
-BE/.env
-BE/firebase_config.json
+# ==========================================
+# Python / 백엔드
+# ==========================================
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+.env
+.envrc
 
-# 프론트엔드 의존성 및 로컬 환경변수 차단
+# 수집 결과물 (재생성 가능)
+BE/YUBIN/news_api_result.csv
+BE/YUBIN/news_filtered_result.csv
+
+# 설정 파일 (민감 정보)
+BE/firebase_config.json
+BE/YUBIN/config.py
+
+# 테스트 / 캐시
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ==========================================
+# Node / 프론트엔드
+# ==========================================
 FE/node_modules/
+FE/dist/
+FE/dist-ssr/
 FE/.env
 FE/.env.local
+FE/.env.*.local
 
-# 맥 시스템 파일 차단
+# ==========================================
+# IDE / OS
+# ==========================================
 .DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.sw?

@@ -1,0 +1,17 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+firebase-admin==6.5.0
+pydantic==2.7.0
+
+# 유빈 담당: 데이터 수집
+yfinance==0.2.40
+requests==2.32.3
+pandas==2.2.2
+
+# 희선 담당: Prophet 예측
+prophet==1.1.5
+numpy==1.26.4
+
+# 연우 담당: FinBERT 감성분석
+transformers==4.41.0
+torch==2.3.0
