@@ -121,12 +121,25 @@ function App() {
       }
       return;
     }
+    // UI 먼저 반응 (낙관적 업데이트)
     if (isFavorite) {
-      await removeFavorite(user.uid, selectedStock.code);
       setFavorites(prev => prev.filter(f => f.ticker !== selectedStock.code));
+      try {
+        await removeFavorite(user.uid, selectedStock.code);
+      } catch (e) {
+        console.error("관심 종목 해제 실패:", e);
+        // 실패 시 롤백
+        setFavorites(prev => [...prev, { ticker: selectedStock.code, name: selectedStock.name }]);
+      }
     } else {
-      await addFavorite(user.uid, selectedStock.code, selectedStock.name);
       setFavorites(prev => [...prev, { ticker: selectedStock.code, name: selectedStock.name }]);
+      try {
+        await addFavorite(user.uid, selectedStock.code, selectedStock.name);
+      } catch (e) {
+        console.error("관심 종목 추가 실패:", e);
+        // 실패 시 롤백
+        setFavorites(prev => prev.filter(f => f.ticker !== selectedStock.code));
+      }
     }
   };
 
