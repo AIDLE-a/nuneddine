@@ -1,9 +1,17 @@
 const API_BASE = "http://localhost:8000";
 
 export async function analyzeStock(ticker) {
-  const res = await fetch(`${API_BASE}/api/analyze?ticker=${encodeURIComponent(ticker)}`);
-  if (!res.ok) throw new Error(`분석 요청 실패: ${res.status}`);
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 120000); // 2분 타임아웃
+  try {
+    const res = await fetch(`${API_BASE}/api/analyze?ticker=${encodeURIComponent(ticker)}`, {
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`분석 요청 실패: ${res.status}`);
+    return await res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function loginWithToken(idToken) {

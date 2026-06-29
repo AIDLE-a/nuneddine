@@ -7,10 +7,15 @@ Prophet 기반 7일 주가 예측 + 감성 점수로 보정.
   USE_MOCK_DATA=false  실제 Prophet 예측 사용
 """
 import os
+import time
 from schemas import Prediction, PredictionResult, Sentiment
 
 USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
-SENTIMENT_ADJUSTMENT_WEIGHT = 0.02  # 감성이 예측에 영향을 줄 수 있는 최대 비율 (±2%)
+SENTIMENT_ADJUSTMENT_WEIGHT = 0.02
+
+# 종목별 Prophet 결과 캐시 (1시간 유효)
+_cache: dict = {}
+_CACHE_TTL = 3600
 
 
 def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult:
@@ -26,17 +31,21 @@ def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult
 
 
 def _run_prophet(ticker: str, price: float) -> Prediction:
-    """
-    희선의 forecast_uncertainty.py를 활용한 실제 Prophet 예측.
-    tools/forecast_uncertainty.py의 run_forecast_uncertainty()를 호출.
-    """
+    # 캐시 확인 (1시간 이내면 재사용)
+    cached = _cache.get(ticker)
+    if cached and time.time() - cached["ts"] < _CACHE_TTL:
+        print(f"⚡ {ticker} Prophet 캐시 사용")
+        return cached["prediction"]
+
     from heesun_forecast import run_forecast_uncertainty
     result = run_forecast_uncertainty(ticker, forecast_days=7)
-    return Prediction(
+    prediction = Prediction(
         future_price=result["predicted_price"],
         lower=result["lower_bound"],
         upper=result["upper_bound"],
     )
+    _cache[ticker] = {"prediction": prediction, "ts": time.time()}
+    return prediction
 
 
 def _adjust_with_sentiment(prediction: Prediction, sentiment: Sentiment) -> Prediction:

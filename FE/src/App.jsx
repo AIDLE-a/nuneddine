@@ -81,6 +81,7 @@ function App() {
   const [selectedStock, setSelectedStock] = useState(MOCK_STOCKS[0]);
   const [analysis, setAnalysis] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('');
 
   // 로그인 관련 상태
   const [user, setUser] = useState(null);
@@ -147,8 +148,25 @@ function App() {
     setSelectedStock(stock);
     setIsLoading(true);
     setAnalysis(null);
+
+    // 단계별 로딩 메시지
+    const msgs = [
+      '📡 뉴스 및 주가 데이터 수집 중...',
+      '🤖 FinBERT 감성 분석 중...',
+      '📈 Prophet 7일 예측 계산 중... (약 30~60초 소요)',
+      '🔍 Critic 에이전트 신뢰도 검토 중...',
+    ];
+    let msgIdx = 0;
+    setLoadingMsg(msgs[0]);
+    const msgTimer = setInterval(() => {
+      msgIdx = Math.min(msgIdx + 1, msgs.length - 1);
+      setLoadingMsg(msgs[msgIdx]);
+    }, 12000);
+
     try {
       const data = await analyzeStock(stock.code);
+      clearInterval(msgTimer);
+      setLoadingMsg('');
       setAnalysis(data);
       // 로그인 상태면 히스토리 저장
       if (user) {
@@ -157,6 +175,8 @@ function App() {
         setHistory(updated);
       }
     } catch (e) {
+      clearInterval(msgTimer);
+      setLoadingMsg('');
       console.warn("백엔드 미연결 — 목데이터로 표시:", e.message);
     } finally {
       setIsLoading(false);
@@ -195,6 +215,10 @@ function App() {
             setFavorites(prev => prev.filter(f => f.ticker !== ticker));
           }}
         />
+      )}
+
+      {isLoading && loadingMsg && (
+        <div className="loading-banner">{loadingMsg}</div>
       )}
 
       <SummaryCards
