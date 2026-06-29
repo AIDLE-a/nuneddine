@@ -30,18 +30,20 @@ def get_stock_data(ticker: str) -> StockDataResult:
     if USE_MOCK:
         return _get_mock_data(ticker)
 
-    price = _fetch_price(ticker)
+    price, price_history = _fetch_price(ticker)
     news = _fetch_news(ticker)
     info_warning = _check_info_uncertainty(news)
-    return StockDataResult(ticker=ticker, price=price, news=news, info_warning=info_warning)
+    return StockDataResult(ticker=ticker, price=price, price_history=price_history, news=news, info_warning=info_warning)
 
 
-def _fetch_price(ticker: str) -> float:
+def _fetch_price(ticker: str) -> tuple[float, list[float]]:
     stock = yf.Ticker(ticker)
-    hist = stock.history(period="5d")
+    hist = stock.history(period="10d")  # 충분히 가져와서 최근 7거래일 추출
     if hist.empty:
         raise ValueError(f"{ticker} 주가 데이터를 가져올 수 없습니다")
-    return float(hist["Close"].iloc[-1])
+    closes = [round(float(v), 2) for v in hist["Close"].tolist()]
+    recent_7 = closes[-7:]  # 최근 7거래일
+    return recent_7[-1], recent_7
 
 
 def _fetch_news(ticker: str) -> list[NewsItem]:

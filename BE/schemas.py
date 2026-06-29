@@ -22,6 +22,7 @@ class StockDataResult(BaseModel):
     """유빈이 만드는 결과물 — 정보 불확실성을 스스로 판단해서 같이 반환"""
     ticker: str
     price: float
+    price_history: List[float] = []  # 최근 7거래일 종가 (차트용)
     news: List[NewsItem]
     info_warning: Optional[str] = None  # 예: "뉴스 부족"
 
@@ -66,6 +67,7 @@ class StockAnalysisResponse(BaseModel):
     """
     ticker: str
     price: float
+    price_history: List[float] = []  # 최근 7일 실제 종가 (차트용, 유빈 추가)
     news: List[NewsItem]
     prediction: Prediction
     sentiment: Sentiment

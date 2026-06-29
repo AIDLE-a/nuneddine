@@ -1,4 +1,33 @@
 /* ==========================================
+   CSS 변수 — 라이트/다크 공용 토큰
+   ========================================== */
+:root {
+  --text-primary: #2D2D2A;
+  --text-muted: #8A8A82;
+  --text-sub: #4A4A45;
+  --chart-line: #2D2D2A;
+  --chart-axis: #8A8A82;
+  --chart-grid: #F0F0EC;
+  --xai-track: #EDEDE8;
+  --tooltip-bg: #ffffff;
+  --tooltip-border: #E5E5E0;
+  --ring-track: #E5E5E0;
+}
+
+body.dark-mode {
+  --text-primary: #EAEAEA;
+  --text-muted: #9A9A9A;
+  --text-sub: #C0C0C0;
+  --chart-line: #D0D0D0;
+  --chart-axis: #9A9A9A;
+  --chart-grid: #2A2A2A;
+  --xai-track: #333333;
+  --tooltip-bg: #1E1E1E;
+  --tooltip-border: #3A3A3A;
+  --ring-track: #3A3A3A;
+}
+
+/* ==========================================
    기본 리셋 및 배경 설정
    ========================================== */
 body {
@@ -310,13 +339,14 @@ body {
   padding-bottom: 10px;
 }
 .news-item:last-child { border-bottom: none; }
-.news-item h4 { margin: 0 0 6px 0; font-size: 14px; font-weight: 500; display: flex; justify-content: space-between; }
+.news-item h4 { margin: 0 0 4px 0; font-size: 15px; font-weight: 600; text-align: left; line-height: 1.4; }
+.news-item .news-meta { font-size: 11px; text-align: left; }
 
 /* 하단 리포트 요약 스타일 */
 .report-text {
   font-size: 14px;
   line-height: 1.6;
-  color: #4A4A45;
+  color: var(--text-sub);
 }
 .report-alert-box {
   background-color: #FFFBEB;
@@ -344,18 +374,19 @@ body {
 }
 .btn-secondary {
   padding: 10px 20px;
-  background-color: #ffffff;
-  border: 1px solid #E5E5E0;
+  background-color: var(--tooltip-bg);
+  border: 1px solid var(--tooltip-border);
   border-radius: 20px;
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
+  color: var(--text-primary);
 }
 
 /* 범용 유틸리티 컬러/배지 */
 .positive { color: #10B981; }
 .negative { color: #EF4444; }
-.text-muted { color: #8A8A82; }
+.text-muted { color: var(--text-muted); }
 .font-normal { font-weight: normal; }
 
 .badge {

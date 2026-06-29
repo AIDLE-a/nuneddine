@@ -53,3 +53,6 @@ FE/.env.*.local
 !.vscode/extensions.json
 *.suo
 *.sw?
+
+# Claude Code 설정 파일
+.claude/

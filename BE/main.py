@@ -6,6 +6,9 @@
 
 실행: uvicorn main:app --reload
 """
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -88,6 +91,7 @@ def analyze(ticker: str = "005930.KS"):
     return StockAnalysisResponse(
         ticker=data_result.ticker,
         price=data_result.price,
+        price_history=data_result.price_history,
         news=data_result.news,
         prediction=prediction_result.prediction,
         sentiment=sentiment_result.sentiment,

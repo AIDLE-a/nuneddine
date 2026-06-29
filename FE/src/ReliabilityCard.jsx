@@ -24,6 +24,11 @@ function ReliabilityCard({ stock, analysis, isLoading }) {
 
   const scoreColor = score >= 70 ? '#10B981' : score >= 50 ? '#F59E0B' : '#EF4444';
 
+  // SVG 링: circumference 기반 dashoffset으로 점수 비율만큼 채움
+  const radius = 52;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - score / 100);
+
   return (
     <div className="card reliability-section">
       <h3>종합 신뢰도</h3>
@@ -31,8 +36,29 @@ function ReliabilityCard({ stock, analysis, isLoading }) {
         <p className="text-muted">분석 중...</p>
       ) : (
         <div className="reliability-content">
-          <div className="mock-donut" style={{ borderColor: scoreColor }}>
-            {score} / 100
+          <div style={{ position: 'relative', width: 130, height: 130 }}>
+            <svg width="130" height="130" style={{ transform: 'rotate(-90deg)' }}>
+              {/* 배경 트랙 */}
+              <circle cx="65" cy="65" r={radius} fill="none" stroke="var(--ring-track, #E5E5E0)" strokeWidth="9" />
+              {/* 점수만큼 채워지는 링 */}
+              <circle
+                cx="65" cy="65" r={radius}
+                fill="none"
+                stroke={scoreColor}
+                strokeWidth="9"
+                strokeDasharray={circumference}
+                strokeDashoffset={offset}
+                strokeLinecap="round"
+                style={{ transition: 'stroke-dashoffset 0.6s ease' }}
+              />
+            </svg>
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 20, fontWeight: 700
+            }}>
+              {score} / 100
+            </div>
           </div>
           <div className="progress-group">
             {[

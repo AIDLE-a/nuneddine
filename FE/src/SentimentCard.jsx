@@ -47,18 +47,18 @@ function SentimentCard({ stock, analysis, isLoading }) {
 
           {explanation.length > 0 && (
             <div style={{ marginTop: 14 }}>
-              <p style={{ fontSize: 12, color: '#8A8A82', margin: '0 0 8px' }}>왜 이렇게 판단했나요?</p>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '0 0 8px' }}>왜 이렇게 판단했나요?</p>
               {explanation.map((item, i) => {
                 const maxAbs = Math.max(...explanation.map(e => Math.abs(e.contribution)), 0.01);
                 const width = (Math.abs(item.contribution) / maxAbs) * 100;
                 const isPos = item.contribution > 0;
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontSize: 12, width: 100, flexShrink: 0, color: '#4A4A45' }}>{item.word}</span>
-                    <div style={{ flex: 1, background: '#EDEDE8', height: 14, borderRadius: 4 }}>
+                    <span style={{ fontSize: 12, width: 100, flexShrink: 0, color: 'var(--text-sub)' }}>{item.word}</span>
+                    <div style={{ flex: 1, background: 'var(--xai-track)', height: 14, borderRadius: 4 }}>
                       <div style={{ width: `${width}%`, height: '100%', background: isPos ? '#10B981' : '#EF4444', borderRadius: 4 }} />
                     </div>
-                    <span style={{ fontSize: 11, color: '#8A8A82', width: 36, textAlign: 'right' }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 36, textAlign: 'right' }}>
                       {isPos ? '+' : ''}{item.contribution.toFixed(2)}
                     </span>
                   </div>
