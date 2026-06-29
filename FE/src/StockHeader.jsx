@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { signInWithPopup, signOut } from "firebase/auth";
-import { auth, provider, getFavorites, getHistory } from './firebase.js';
+import { auth, provider } from './firebase.js';
 import { MOCK_STOCKS } from './App.jsx';
 
 function StockHeader({ isDarkMode, setIsDarkMode, onSelectStock, user, setUser, setFavorites, setHistory }) {
@@ -47,28 +47,10 @@ function StockHeader({ isDarkMode, setIsDarkMode, onSelectStock, user, setUser, 
 
   const handleLogin = async () => {
     try {
-      const result = await signInWithPopup(auth, provider);
-      const token = await result.user.getIdToken();
-
-      const response = await fetch("http://localhost:8000/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
-      });
-      const data = await response.json();
-
-      if (data.status === "success") {
-        setUser(result.user);
-        // 로그인 후 관심 종목 + 히스토리 불러오기
-        const [favs, hist] = await Promise.all([
-          getFavorites(result.user.uid),
-          getHistory(result.user.uid),
-        ]);
-        setFavorites(favs);
-        setHistory(hist);
-      }
+      await signInWithPopup(auth, provider);
+      // App.jsx의 onAuthStateChanged가 자동으로 user 상태 + Firestore 데이터 복구
     } catch (error) {
       console.error("로그인 실패:", error);
-      alert("로그인에 실패했습니다.");
     }
   };
 

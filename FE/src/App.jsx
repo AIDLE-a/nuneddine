@@ -11,7 +11,7 @@ import AiReportCard from "./AiReportCard.jsx";
 import WatchlistPanel from "./WatchlistPanel.jsx";
 import { analyzeStock } from './api.js';
 import { auth, provider, saveHistory, getHistory, addFavorite, removeFavorite, getFavorites } from './firebase.js';
-import { signInWithPopup } from "firebase/auth";
+import { signInWithPopup, onAuthStateChanged } from "firebase/auth";
 
 export const MOCK_STOCKS = [
   {
@@ -92,31 +92,38 @@ function App() {
     document.body.classList.toggle('dark-mode', isDarkMode);
   }, [isDarkMode]);
 
+  // 페이지 새로고침 후에도 로그인 상태 자동 복구
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        try {
+          const [favs, hist] = await Promise.all([
+            getFavorites(firebaseUser.uid),
+            getHistory(firebaseUser.uid),
+          ]);
+          setFavorites(favs);
+          setHistory(hist);
+        } catch (e) {
+          console.warn("Firestore 로드 실패:", e.message);
+        }
+      } else {
+        setUser(null);
+        setFavorites([]);
+        setHistory([]);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
   const isFavorite = favorites.some(f => f.ticker === selectedStock.code);
 
   const handleToggleFavorite = async () => {
     if (!user) {
-      // 로그인 안 된 상태면 바로 로그인 팝업 열기
+      // 로그인 안 된 상태면 바로 구글 로그인 팝업 열기 (BE 연동 불필요)
       try {
-        const result = await signInWithPopup(auth, provider);
-        const token = await result.user.getIdToken();
-        const response = await fetch("http://localhost:8000/api/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
-        });
-        const data = await response.json();
-        if (data.status === "success") {
-          setUser(result.user);
-          const [favs, hist] = await Promise.all([
-            getFavorites(result.user.uid),
-            getHistory(result.user.uid),
-          ]);
-          setFavorites(favs);
-          setHistory(hist);
-          // 로그인 완료 후 바로 관심 종목 추가
-          await addFavorite(result.user.uid, selectedStock.code, selectedStock.name);
-          setFavorites(prev => [...prev, { ticker: selectedStock.code, name: selectedStock.name }]);
-        }
+        await signInWithPopup(auth, provider);
+        // onAuthStateChanged가 자동으로 user 상태 복구 + Firestore 로드
       } catch (e) {
         console.error("로그인 실패:", e);
       }
