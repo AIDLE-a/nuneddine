@@ -4,8 +4,8 @@ import {
   getFirestore,
   doc, getDoc, setDoc, updateDoc,
   arrayUnion, arrayRemove,
-  collection, addDoc, getDocs,
-  query, orderBy, limit, serverTimestamp,
+  collection, addDoc, getDocs, deleteDoc,
+  query, orderBy, limit, where, serverTimestamp,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -47,13 +47,26 @@ export async function removeFavorite(uid, ticker) {
 // ── 최근 분석 기록 ──
 
 export async function saveHistory(uid, ticker, name) {
-  const col = collection(db, "users", uid, "history");
-  await addDoc(col, { ticker, name, analyzedAt: serverTimestamp() });
+  // ticker를 문서 ID로 사용 → 같은 종목은 항상 덮어쓰기 (중복 불가)
+  const ref = doc(db, "users", uid, "history", ticker.replace(/\./g, "_"));
+  await setDoc(ref, { ticker, name, analyzedAt: serverTimestamp() });
+}
+
+export async function deleteHistory(uid, ticker) {
+  const ref = doc(db, "users", uid, "history", ticker.replace(/\./g, "_"));
+  await deleteDoc(ref);
 }
 
 export async function getHistory(uid, count = 5) {
   const col = collection(db, "users", uid, "history");
-  const q = query(col, orderBy("analyzedAt", "desc"), limit(count));
+  const q = query(col, orderBy("analyzedAt", "desc"), limit(20));
   const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  // ticker 기준 중복 제거 (최신 순 유지)
+  const seen = new Set();
+  return all.filter(h => {
+    if (seen.has(h.ticker)) return false;
+    seen.add(h.ticker);
+    return true;
+  }).slice(0, count);
 }

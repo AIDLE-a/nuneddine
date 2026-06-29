@@ -2,11 +2,12 @@ import React from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine
 } from 'recharts';
+import { isKoreanStock } from './currencyUtils.js';
 
 const DAYS = ['7일전', '6일전', '5일전', '4일전', '3일전', '2일전', '어제'];
 
 function StockChartCard({ stock, analysis }) {
-  const isKorean = stock.code.includes('.KS');
+  const isKorean = isKoreanStock(stock, analysis);
 
   const historyPrices = (analysis?.price_history?.length)
     ? analysis.price_history

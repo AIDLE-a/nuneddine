@@ -14,6 +14,28 @@ export async function analyzeStock(ticker) {
   }
 }
 
+export async function getRelatedStocks(ticker) {
+  try {
+    const res = await fetch(`${API_BASE}/api/related?ticker=${encodeURIComponent(ticker)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.results ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function searchStocks(query) {
+  try {
+    const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.results ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export async function loginWithToken(idToken) {
   const res = await fetch(`${API_BASE}/api/login`, {
     method: "POST",

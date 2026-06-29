@@ -1,4 +1,5 @@
 import React from 'react';
+import { isKoreanStock, formatPrice } from './currencyUtils.js';
 
 function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite }) {
   if (isLoading) {
@@ -16,12 +17,9 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
 
   if (analysis) {
     const { price, prediction, sentiment, news } = analysis;
-    const formattedPrice = stock.code.includes('.KS')
-      ? `${price.toLocaleString()}원`
-      : `$${price.toLocaleString()}`;
-    const formattedPredict = stock.code.includes('.KS')
-      ? `${prediction.future_price.toLocaleString()}원`
-      : `$${prediction.future_price.toLocaleString()}`;
+    const korean = isKoreanStock(stock, analysis);
+    const formattedPrice = formatPrice(price, korean);
+    const formattedPredict = formatPrice(prediction.future_price, korean);
     const posStr = Math.round(sentiment.positive * 100);
     const negStr = Math.round(sentiment.negative * 100);
     const sentimentLabel = posStr > 60 ? '긍정 압도' : posStr > negStr + 15 ? '긍정 우세' : negStr > posStr + 15 ? '부정 우세' : '중립 혼재';
@@ -43,14 +41,14 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
           >
             {isFavorite ? '⭐' : '☆'}
           </button>
-          <span className="card-title">현재가</span>
+          <span className="card-title">{stock.name} 현재가</span>
           <span className="card-value">{formattedPrice}</span>
         </div>
         <div className="card summary-card">
           <span className="card-title">7일 예측가</span>
           <span className="card-value">{formattedPredict}</span>
           <span className="card-sub text-muted">
-            {stock.code.includes('.KS')
+            {korean
               ? `${prediction.lower.toLocaleString()} ~ ${prediction.upper.toLocaleString()}원`
               : `$${prediction.lower} ~ $${prediction.upper}`}
           </span>
@@ -83,7 +81,7 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
         >
           {isFavorite ? '⭐' : '☆'}
         </button>
-        <span className="card-title">현재가</span>
+        <span className="card-title">{stock.name} 현재가</span>
         <span className="card-value">{stock.price}</span>
         <span className={`card-sub ${stock.isPositive ? 'positive' : 'negative'}`}>{stock.change}</span>
       </div>

@@ -22,6 +22,23 @@ TICKER_KEYWORD_MAP = {
     "000660.KS": "SK Hynix HBM memory",
     "TSLA": "Tesla EV",
     "AAPL": "Apple iPhone",
+    "035900.KS": "JYP Entertainment Kpop",
+    "041510.KS": "SM Entertainment Kpop",
+    "035420.KS": "NAVER",
+    "035720.KS": "Kakao",
+    "005380.KS": "Hyundai Motor",
+    "000270.KS": "Kia Motors",
+    "373220.KS": "LG Energy Solution battery",
+    "006400.KS": "Samsung SDI battery",
+    "051910.KS": "LG Chem",
+    "207940.KS": "Samsung Biologics",
+    "068270.KS": "Celltrion",
+    "NVDA": "NVIDIA GPU AI",
+    "AMD": "AMD GPU processor",
+    "MSFT": "Microsoft Azure AI",
+    "GOOGL": "Google Alphabet AI",
+    "META": "Meta Facebook AI",
+    "MRNA": "Moderna mRNA vaccine",
 }
 
 
