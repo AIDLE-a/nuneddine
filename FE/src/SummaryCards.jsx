@@ -1,6 +1,6 @@
 import React from 'react';
 
-function SummaryCards({ stock, analysis, isLoading }) {
+function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite }) {
   if (isLoading) {
     return (
       <div className="summary-grid">
@@ -30,7 +30,18 @@ function SummaryCards({ stock, analysis, isLoading }) {
 
     return (
       <div className="summary-grid">
-        <div className="card summary-card">
+        <div className="card summary-card" style={{ position: 'relative' }}>
+          <button
+            onClick={onToggleFavorite}
+            title={isFavorite ? '관심 종목 해제' : '관심 종목 추가'}
+            style={{
+              position: 'absolute', top: 12, right: 12,
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 18, lineHeight: 1,
+            }}
+          >
+            {isFavorite ? '⭐' : '☆'}
+          </button>
           <span className="card-title">현재가</span>
           <span className="card-value">{formattedPrice}</span>
         </div>
@@ -59,7 +70,18 @@ function SummaryCards({ stock, analysis, isLoading }) {
 
   return (
     <div className="summary-grid">
-      <div className="card summary-card">
+      <div className="card summary-card" style={{ position: 'relative' }}>
+        <button
+          onClick={onToggleFavorite}
+          title={isFavorite ? '관심 종목 해제' : '관심 종목 추가'}
+          style={{
+            position: 'absolute', top: 12, right: 12,
+            background: 'none', border: 'none', cursor: 'pointer',
+            fontSize: 18, lineHeight: 1,
+          }}
+        >
+          {isFavorite ? '⭐' : '☆'}
+        </button>
         <span className="card-title">현재가</span>
         <span className="card-value">{stock.price}</span>
         <span className={`card-sub ${stock.isPositive ? 'positive' : 'negative'}`}>{stock.change}</span>

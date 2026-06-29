@@ -8,7 +8,9 @@ import ReliabilityCard from "./ReliabilityCard.jsx";
 import SentimentCard from "./SentimentCard.jsx";
 import RecentNewsCard from "./RecentNewsCard.jsx";
 import AiReportCard from "./AiReportCard.jsx";
+import WatchlistPanel from "./WatchlistPanel.jsx";
 import { analyzeStock } from './api.js';
+import { saveHistory, getHistory, addFavorite, removeFavorite, getFavorites } from './firebase.js';
 
 export const MOCK_STOCKS = [
   {
@@ -79,13 +81,27 @@ function App() {
   const [analysis, setAnalysis] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  // 로그인 관련 상태
+  const [user, setUser] = useState(null);
+  const [favorites, setFavorites] = useState([]);
+  const [history, setHistory] = useState([]);
+
   useEffect(() => {
-    if (isDarkMode) {
-      document.body.classList.add('dark-mode');
-    } else {
-      document.body.classList.remove('dark-mode');
-    }
+    document.body.classList.toggle('dark-mode', isDarkMode);
   }, [isDarkMode]);
+
+  const isFavorite = favorites.some(f => f.ticker === selectedStock.code);
+
+  const handleToggleFavorite = async () => {
+    if (!user) { alert("로그인 후 이용할 수 있습니다."); return; }
+    if (isFavorite) {
+      await removeFavorite(user.uid, selectedStock.code);
+      setFavorites(prev => prev.filter(f => f.ticker !== selectedStock.code));
+    } else {
+      await addFavorite(user.uid, selectedStock.code, selectedStock.name);
+      setFavorites(prev => [...prev, { ticker: selectedStock.code, name: selectedStock.name }]);
+    }
+  };
 
   const handleAnalyze = async (stock) => {
     setSelectedStock(stock);
@@ -94,6 +110,12 @@ function App() {
     try {
       const data = await analyzeStock(stock.code);
       setAnalysis(data);
+      // 로그인 상태면 히스토리 저장
+      if (user) {
+        await saveHistory(user.uid, stock.code, stock.name);
+        const updated = await getHistory(user.uid);
+        setHistory(updated);
+      }
     } catch (e) {
       console.warn("백엔드 미연결 — 목데이터로 표시:", e.message);
     } finally {
@@ -115,14 +137,36 @@ function App() {
         isDarkMode={isDarkMode}
         setIsDarkMode={setIsDarkMode}
         onSelectStock={handleAnalyze}
+        user={user}
+        setUser={setUser}
+        setFavorites={setFavorites}
+        setHistory={setHistory}
       />
 
-      <SummaryCards stock={selectedStock} analysis={analysis} isLoading={isLoading} />
+      {/* 로그인 시 관심 종목 + 최근 기록 패널 */}
+      {user && (
+        <WatchlistPanel
+          user={user}
+          favorites={favorites}
+          history={history}
+          onSelectStock={handleAnalyze}
+          onRemoveFavorite={async (ticker) => {
+            await removeFavorite(user.uid, ticker);
+            setFavorites(prev => prev.filter(f => f.ticker !== ticker));
+          }}
+        />
+      )}
+
+      <SummaryCards
+        stock={selectedStock}
+        analysis={analysis}
+        isLoading={isLoading}
+        isFavorite={isFavorite}
+        onToggleFavorite={handleToggleFavorite}
+      />
 
       {hasWarning && (
-        <div className="alert-banner">
-          ⚠️ {warningText}
-        </div>
+        <div className="alert-banner">⚠️ {warningText}</div>
       )}
 
       <div className="main-content-grid">
