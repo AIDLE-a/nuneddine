@@ -62,47 +62,68 @@ function AnalysisPage({
     setSelectedResult(stock);
     setIsDropdownOpen(false);
     setSearchResults([]);
+    onAnalyze(stock); // 드롭다운 선택 즉시 분석 시작
   };
 
-  const handleAnalysisClick = () => {
+  const handleAnalysisClick = async () => {
+    setIsDropdownOpen(false);
+
     // 드롭다운에서 선택한 종목이 있으면 그걸 그대로 사용
     if (selectedResult) {
-      setIsDropdownOpen(false);
       onAnalyze(selectedResult);
       return;
     }
-    // 검색 결과가 있으면 첫 번째 항목 사용
-    if (searchResults.length > 0) {
-      const first = searchResults[0];
-      const existing = MOCK_STOCKS.find(s => s.code === first.ticker);
-      const stock = existing ?? {
-        name: first.name, code: first.ticker, exchange: first.exchange ?? '',
-        price: '-', change: '-', isPositive: true,
-        predict7d: '-', range: '-', sentiment: '-', sentimentSub: '-',
-        newsCount: '-', newsStatus: '적정', chartData: [], news: [], aiReport: '', aiWarning: '',
-      };
-      setSearchTerm(`${first.name} (${first.ticker})`);
-      setIsDropdownOpen(false);
-      onAnalyze(stock);
-      return;
-    }
+
     const raw = searchTerm.trim();
+    if (!raw) return;
+
     const codeMatch = raw.match(/\(([^)]+)\)/);
     const ticker = codeMatch ? codeMatch[1] : raw;
     const cleanName = raw.replace(/\s*\(.*\)/, '').toLowerCase().trim();
+
+    // MOCK_STOCKS에서 먼저 찾기
     const matchedStock = MOCK_STOCKS.find(s =>
       s.name.toLowerCase().includes(cleanName) ||
       s.code.toLowerCase() === ticker.toLowerCase() ||
       (s.aliases ?? []).some(a => a.toLowerCase().includes(cleanName))
     );
-    const stock = matchedStock ?? {
-      name: ticker.toUpperCase(), code: ticker.toUpperCase(),
-      price: '-', change: '-', isPositive: true,
-      predict7d: '-', range: '-', sentiment: '-', sentimentSub: '-',
-      newsCount: '-', newsStatus: '적정', chartData: [], news: [], aiReport: '', aiWarning: '',
-    };
-    setIsDropdownOpen(false);
-    onAnalyze(stock);
+    if (matchedStock) { onAnalyze(matchedStock); return; }
+
+    // 검색 결과가 있으면 첫 번째 항목 사용
+    if (searchResults.length > 0) {
+      const first = searchResults[0];
+      const stock = { name: first.name, code: first.ticker, exchange: first.exchange ?? '',
+        price: '-', change: '-', isPositive: true, predict7d: '-', range: '-',
+        sentiment: '-', sentimentSub: '-', newsCount: '-', newsStatus: '적정',
+        chartData: [], news: [], aiReport: '', aiWarning: '' };
+      setSearchTerm(`${first.name} (${first.ticker})`);
+      setSelectedResult(stock);
+      onAnalyze(stock);
+      return;
+    }
+
+    // 검색 결과도 없으면 API로 직접 검색
+    try {
+      const { searchStocks } = await import('../api.js');
+      const results = await searchStocks(cleanName || ticker);
+      if (results.length > 0) {
+        const first = results[0];
+        const stock = { name: first.name, code: first.ticker, exchange: first.exchange ?? '',
+          price: '-', change: '-', isPositive: true, predict7d: '-', range: '-',
+          sentiment: '-', sentimentSub: '-', newsCount: '-', newsStatus: '적정',
+          chartData: [], news: [], aiReport: '', aiWarning: '' };
+        setSearchTerm(`${first.name} (${first.ticker})`);
+        setSelectedResult(stock);
+        onAnalyze(stock);
+        return;
+      }
+    } catch (_) {}
+
+    // 최후 폴백: 입력값 그대로 사용
+    onAnalyze({ name: ticker.toUpperCase(), code: ticker.toUpperCase(),
+      price: '-', change: '-', isPositive: true, predict7d: '-', range: '-',
+      sentiment: '-', sentimentSub: '-', newsCount: '-', newsStatus: '적정',
+      chartData: [], news: [], aiReport: '', aiWarning: '' });
   };
 
   const showPopular = searchTerm.length === 0 || searchTerm.includes(')');
