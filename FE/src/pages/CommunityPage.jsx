@@ -21,6 +21,9 @@ function CommunityPage({ user }) {
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [toast, setToast] = useState('');
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2500); };
 
   // 실시간 구독 — 공감수 변경 즉시 반영
   useEffect(() => {
@@ -57,9 +60,7 @@ function CommunityPage({ user }) {
     <div className="page-content">
       <div className="page-header">
         <h1 className="page-title">커뮤니티</h1>
-        {user && !writing && (
-          <button className="btn-write" onClick={() => setWriting(true)}>글쓰기</button>
-        )}
+        <button className="btn-write" onClick={() => user ? setWriting(true) : showToast('로그인이 필요한 기능입니다!')}>글쓰기</button>
       </div>
 
       {/* HOT 게시글 */}
@@ -115,6 +116,8 @@ function CommunityPage({ user }) {
           </div>
         </div>
       )}
+
+      {toast && <div className="login-toast">{toast}</div>}
 
       {loading ? (
         <div className="community-empty">불러오는 중...</div>

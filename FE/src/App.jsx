@@ -90,6 +90,7 @@ function AppInner() {
   const [favorites, setFavorites] = useState([]);
   const [history, setHistory] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
+  const [toast, setToast] = useState('');
 
   useEffect(() => {
     document.body.classList.toggle('dark-mode', isDarkMode);
@@ -130,7 +131,8 @@ function AppInner() {
 
   const handleToggleFavorite = async () => {
     if (!user) {
-      try { await signInWithPopup(auth, provider); } catch (e) { console.error(e); }
+      setToast('로그인이 필요한 기능입니다!');
+      setTimeout(() => setToast(''), 2500);
       return;
     }
     if (isFavorite) {
@@ -258,6 +260,7 @@ function AppInner() {
           <Route path="/community/:postId" element={<PostDetailPage user={user} />} />
         </Routes>
       </main>
+      {toast && <div className="login-toast">{toast}</div>}
     </div>
   );
 }

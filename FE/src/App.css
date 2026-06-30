@@ -862,3 +862,20 @@ body {
 .crop-modal-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
 .crop-modal-sub { font-size: 12px; color: var(--text-muted); margin-top: -8px; }
 .crop-modal-actions { display: flex; gap: 10px; width: 100%; justify-content: flex-end; }
+
+.login-toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text-primary);
+  color: var(--bg);
+  padding: 10px 22px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 9999;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+}

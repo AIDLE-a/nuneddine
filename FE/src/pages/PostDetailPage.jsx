@@ -18,7 +18,7 @@ function Avatar({ photo, name, size = 28 }) {
 }
 
 // 개별 댓글/대댓글 행 — 재사용
-function CommentRow({ comment, user, isReply, onLike, onReply, onDelete, onEdit }) {
+function CommentRow({ comment, user, isReply, onLike, onReply, onDelete, onEdit, onRequireLogin }) {
   const [likes, setLikes] = useState(comment.likes ?? []);
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState('');
@@ -28,7 +28,7 @@ function CommentRow({ comment, user, isReply, onLike, onReply, onDelete, onEdit 
   const liked = user ? likes.includes(user.uid) : false;
 
   const handleLike = async () => {
-    if (!user) return;
+    if (!user) { onRequireLogin?.(); return; }
     const newLikes = await onLike(comment.id);
     setLikes(newLikes);
   };
@@ -84,9 +84,7 @@ function CommentRow({ comment, user, isReply, onLike, onReply, onDelete, onEdit 
             <button className={`comment-like-btn${liked ? ' liked' : ''}`} onClick={handleLike} disabled={!user}>
               {liked ? '❤️' : '🤍'}{likes.length > 0 && <span>{likes.length}</span>}
             </button>
-            {user && (
-              <button className="comment-action-btn" onClick={() => setReplying(v => !v)}>답글</button>
-            )}
+            <button className="comment-action-btn" onClick={() => user ? setReplying(v => !v) : onRequireLogin?.()}>답글</button>
             {user?.uid === comment.authorUid && (
               <>
                 <button className="comment-action-btn" onClick={() => { setEditing(true); setReplying(false); }}>수정</button>
@@ -127,6 +125,14 @@ function PostDetailPage({ user }) {
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState('');
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(''), 2500);
+  };
+
+  const requireLogin = () => { showToast('로그인이 필요한 기능입니다!'); return false; };
 
   const reload = async () => {
     const [p, c] = await Promise.all([getPost(postId), getComments(postId)]);
@@ -168,7 +174,7 @@ function PostDetailPage({ user }) {
   };
 
   const handlePostLike = async () => {
-    if (!user) return;
+    if (!user) { requireLogin(); return; }
     const newLikes = await togglePostLike(postId, user.uid);
     setPostLikes(newLikes);
   };
@@ -221,6 +227,7 @@ function PostDetailPage({ user }) {
               onReply={handleReply}
               onDelete={handleDeleteComment}
               onEdit={handleEditComment}
+              onRequireLogin={requireLogin}
             />
             {getReplies(comment.id).map(reply => (
               <CommentRow
@@ -232,33 +239,36 @@ function PostDetailPage({ user }) {
                 onReply={handleReply}
                 onDelete={handleDeleteComment}
                 onEdit={handleEditComment}
+                onRequireLogin={requireLogin}
               />
             ))}
           </div>
         ))}
       </div>
 
-      {user ? (
-        <div className="comment-write-box">
-          <Avatar photo={user.photoURL} name={user.displayName} />
-          <div className="comment-write-inner">
-            <textarea
-              className="reply-input"
-              placeholder="댓글을 입력하세요"
-              value={commentText}
-              onChange={e => setCommentText(e.target.value)}
-              rows={2}
-            />
+      <div className="comment-write-box">
+        {user && <Avatar photo={user.photoURL} name={user.displayName} />}
+        <div className="comment-write-inner">
+          <textarea
+            className="reply-input"
+            placeholder={user ? "댓글을 입력하세요" : "로그인 후 댓글을 작성할 수 있습니다"}
+            value={commentText}
+            onChange={e => setCommentText(e.target.value)}
+            onFocus={() => { if (!user) requireLogin(); }}
+            rows={2}
+            readOnly={!user}
+          />
+          {user && (
             <div className="post-write-actions">
               <button className="btn-save" onClick={handleComment} disabled={submitting || !commentText.trim()}>
                 {submitting ? '등록 중...' : '댓글 등록'}
               </button>
             </div>
-          </div>
+          )}
         </div>
-      ) : (
-        <p className="community-empty" style={{ fontSize: 13 }}>로그인 후 댓글을 작성할 수 있습니다.</p>
-      )}
+      </div>
+
+      {toast && <div className="login-toast">{toast}</div>}
     </div>
   );
 }
