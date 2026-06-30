@@ -865,17 +865,18 @@ body {
 
 .login-toast {
   position: fixed;
-  bottom: 32px;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  background: var(--text-primary);
-  color: var(--bg);
-  padding: 10px 22px;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 500;
+  transform: translate(-50%, -50%);
+  background: rgba(26, 26, 24, 0.92);
+  color: #fff;
+  padding: 20px 40px;
+  border-radius: 16px;
+  font-size: 18px;
+  font-weight: 600;
   z-index: 9999;
   pointer-events: none;
   white-space: nowrap;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.28);
+  letter-spacing: -0.3px;
 }
