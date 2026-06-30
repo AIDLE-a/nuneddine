@@ -59,10 +59,9 @@ export async function updateDisplayName(user, newName) {
 
 // ── 프로필 사진 ──
 
-export async function uploadProfilePhoto(user, file) {
-  const ext = file.name.split('.').pop();
-  const photoRef = storageRef(storage, `profile_photos/${user.uid}.${ext}`);
-  await uploadBytes(photoRef, file);
+export async function uploadProfilePhoto(user, blob) {
+  const photoRef = storageRef(storage, `profile_photos/${user.uid}.jpg`);
+  await uploadBytes(photoRef, blob, { contentType: 'image/jpeg' });
   const url = await getDownloadURL(photoRef);
   await updateProfile(auth.currentUser, { photoURL: url });
   await setDoc(doc(db, "users", user.uid), { photoURL: url }, { merge: true });

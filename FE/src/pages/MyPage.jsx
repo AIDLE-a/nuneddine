@@ -3,6 +3,7 @@ import { signOut } from 'firebase/auth';
 import { auth } from '../firebase.js';
 import { updateDisplayName, isNameTaken, uploadProfilePhoto } from '../firebase.js';
 import { useNavigate } from 'react-router-dom';
+import PhotoCropModal from '../components/PhotoCropModal.jsx';
 
 function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, isDarkMode, setIsDarkMode }) {
   const navigate = useNavigate();
@@ -13,6 +14,7 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
   const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState('');
 
+  const [cropFile, setCropFile] = useState(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState('');
 
@@ -49,21 +51,26 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
     setEditingName(false);
   };
 
-  const handlePhotoChange = async (e) => {
+  const handleFileSelect = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith('image/')) { setPhotoError('이미지 파일만 업로드할 수 있습니다.'); return; }
-    if (file.size > 5 * 1024 * 1024) { setPhotoError('5MB 이하 파일만 업로드할 수 있습니다.'); return; }
-    setPhotoUploading(true);
+    if (file.size > 20 * 1024 * 1024) { setPhotoError('20MB 이하 파일만 선택할 수 있습니다.'); return; }
     setPhotoError('');
+    setCropFile(file);
+    e.target.value = '';
+  };
+
+  const handleCropConfirm = async (blob) => {
+    setCropFile(null);
+    setPhotoUploading(true);
     try {
-      const url = await uploadProfilePhoto(user, file);
+      const url = await uploadProfilePhoto(user, blob);
       setUser({ ...user, photoURL: url });
     } catch (e) {
       setPhotoError('업로드에 실패했습니다. 다시 시도해주세요.');
     } finally {
       setPhotoUploading(false);
-      e.target.value = '';
     }
   };
 
@@ -76,6 +83,14 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
       <div className="page-header">
         <h1 className="page-title">마이페이지</h1>
       </div>
+
+      {cropFile && (
+        <PhotoCropModal
+          file={cropFile}
+          onConfirm={handleCropConfirm}
+          onCancel={() => setCropFile(null)}
+        />
+      )}
 
       {/* 프로필 카드 */}
       <div className="mypage-profile-card">
@@ -97,7 +112,7 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
             type="file"
             accept="image/*"
             style={{ display: 'none' }}
-            onChange={handlePhotoChange}
+            onChange={handleFileSelect}
           />
         </div>
 
