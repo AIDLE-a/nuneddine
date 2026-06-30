@@ -131,7 +131,7 @@ function AppInner() {
 
   const handleToggleFavorite = async () => {
     if (!user) {
-      setToast('로그인이 필요한 기능입니다!');
+      setToast('로그인이 필요한 기능입니다');
       setTimeout(() => setToast(''), 2500);
       return;
     }

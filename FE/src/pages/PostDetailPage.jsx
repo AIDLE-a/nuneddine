@@ -132,7 +132,7 @@ function PostDetailPage({ user }) {
     setTimeout(() => setToast(''), 2500);
   };
 
-  const requireLogin = () => { showToast('로그인이 필요한 기능입니다!'); return false; };
+  const requireLogin = () => { showToast('로그인이 필요한 기능입니다'); return false; };
 
   const reload = async () => {
     const [p, c] = await Promise.all([getPost(postId), getComments(postId)]);

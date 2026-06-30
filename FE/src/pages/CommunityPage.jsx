@@ -60,7 +60,7 @@ function CommunityPage({ user }) {
     <div className="page-content">
       <div className="page-header">
         <h1 className="page-title">커뮤니티</h1>
-        <button className="btn-write" onClick={() => user ? setWriting(true) : showToast('로그인이 필요한 기능입니다!')}>글쓰기</button>
+        <button className="btn-write" onClick={() => user ? setWriting(true) : showToast('로그인이 필요한 기능입니다')}>글쓰기</button>
       </div>
 
       {/* HOT 게시글 */}
