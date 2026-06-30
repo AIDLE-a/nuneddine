@@ -7,6 +7,8 @@ import AnalysisPage from './pages/AnalysisPage.jsx';
 import FavoritesPage from './pages/FavoritesPage.jsx';
 import HistoryPage from './pages/HistoryPage.jsx';
 import MyPage from './pages/MyPage.jsx';
+import CommunityPage from './pages/CommunityPage.jsx';
+import PostDetailPage from './pages/PostDetailPage.jsx';
 
 import { analyzeStock, getRelatedStocks } from './api.js';
 import { auth, saveHistory, getHistory, deleteHistory, addFavorite, removeFavorite, getFavorites } from './firebase.js';
@@ -252,6 +254,8 @@ function AppInner() {
               setIsDarkMode={setIsDarkMode}
             />
           } />
+          <Route path="/community" element={<CommunityPage user={user} />} />
+          <Route path="/community/:postId" element={<PostDetailPage user={user} />} />
         </Routes>
       </main>
     </div>

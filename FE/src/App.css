@@ -700,6 +700,98 @@ body {
 .font-normal { font-weight: normal; }
 .theme-toggle-container { display: none; }
 
+/* ── 커뮤니티 ── */
+.btn-write {
+  font-size: 13px; font-weight: 500;
+  background: var(--accent); color: #fff;
+  border: none; border-radius: 8px; padding: 7px 16px; cursor: pointer;
+}
+.community-empty {
+  text-align: center; color: var(--text-muted); padding: 48px 0; font-size: 14px;
+}
+.post-list { display: flex; flex-direction: column; gap: 10px; }
+.post-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px 20px; cursor: pointer; transition: border-color 0.15s;
+}
+.post-card:hover { border-color: var(--accent); }
+.post-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.post-author { display: flex; align-items: center; gap: 8px; }
+.post-author-name { font-size: 13px; font-weight: 500; color: var(--text-primary); }
+.post-time { font-size: 12px; color: var(--text-muted); }
+.post-comment-count { font-size: 12px; color: var(--text-muted); }
+.post-title { font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 6px; }
+.post-preview { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+.post-write-box {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 18px 20px; margin-bottom: 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.post-write-title {
+  font-size: 15px; font-weight: 500; color: var(--text-primary);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; outline: none; width: 100%; box-sizing: border-box;
+}
+.post-write-content {
+  font-size: 14px; color: var(--text-primary);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; outline: none;
+  width: 100%; box-sizing: border-box; resize: vertical; font-family: inherit;
+}
+.post-write-title:focus, .post-write-content:focus { border-color: var(--accent); }
+.post-write-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* 게시글 상세 */
+.post-back-btn {
+  background: none; border: none; color: var(--accent);
+  font-size: 13px; cursor: pointer; padding: 0; margin-bottom: 16px; display: inline-block;
+}
+.post-detail-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 24px; margin-bottom: 16px;
+}
+.post-detail-title { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 14px; }
+.post-detail-content { font-size: 14px; color: var(--text-primary); line-height: 1.7; white-space: pre-wrap; }
+
+/* 댓글 */
+.comments-section { margin-bottom: 16px; }
+.comments-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
+.comment-item { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.comment-item.reply { padding-left: 36px; }
+.comment-main { display: flex; gap: 10px; align-items: flex-start; }
+.comment-avatar {
+  border-radius: 50%; background: var(--accent-bg); color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 600; flex-shrink: 0;
+}
+.comment-avatar-img { border-radius: 50%; object-fit: cover; flex-shrink: 0; width: 28px; height: 28px; }
+.comment-body { flex: 1; }
+.comment-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.comment-author { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.comment-time { font-size: 12px; color: var(--text-muted); }
+.comment-content { font-size: 14px; color: var(--text-primary); line-height: 1.5; white-space: pre-wrap; }
+.comment-actions { display: flex; gap: 8px; margin-top: 6px; }
+.comment-action-btn {
+  font-size: 12px; color: var(--text-muted); background: none; border: none; cursor: pointer; padding: 0;
+}
+.comment-action-btn:hover { color: var(--accent); }
+.comment-action-btn.danger:hover { color: #ef4444; }
+.replies { margin-top: 4px; }
+.reply-write-box { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.reply-input {
+  font-size: 13px; color: var(--text-primary);
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; outline: none;
+  width: 100%; box-sizing: border-box; resize: none; font-family: inherit;
+}
+.reply-input:focus { border-color: var(--accent); }
+.comment-write-box {
+  display: flex; gap: 10px; align-items: flex-start;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 16px;
+}
+.comment-write-inner { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+
 /* ── 사진 크롭 모달 ── */
 .crop-modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,0.6);

@@ -75,6 +75,60 @@ export async function uploadProfilePhoto(user, blob) {
   return url;
 }
 
+// ── 커뮤니티 (게시글 + 댓글) ──
+
+export async function createPost(user, title, content) {
+  const ref = doc(db, "posts", crypto.randomUUID());
+  await setDoc(ref, {
+    title, content,
+    authorUid: user.uid,
+    authorName: user.displayName ?? '익명',
+    authorPhoto: user.photoURL ?? null,
+    createdAt: serverTimestamp(),
+    commentCount: 0,
+  });
+  return ref.id;
+}
+
+export async function getPosts(count = 20) {
+  const q = query(collection(db, "posts"), orderBy("createdAt", "desc"), limit(count));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function getPost(postId) {
+  const snap = await getDoc(doc(db, "posts", postId));
+  return snap.exists() ? { id: snap.id, ...snap.data() } : null;
+}
+
+export async function deletePost(postId) {
+  await deleteDoc(doc(db, "posts", postId));
+}
+
+export async function addComment(user, postId, content, parentId = null) {
+  const colRef = collection(db, "posts", postId, "comments");
+  const ref = doc(colRef, crypto.randomUUID());
+  await setDoc(ref, {
+    content, parentId,
+    authorUid: user.uid,
+    authorName: user.displayName ?? '익명',
+    authorPhoto: user.photoURL ?? null,
+    createdAt: serverTimestamp(),
+  });
+  // commentCount 증가
+  await updateDoc(doc(db, "posts", postId), { commentCount: (await getDoc(doc(db, "posts", postId))).data()?.commentCount + 1 ?? 1 });
+}
+
+export async function getComments(postId) {
+  const q = query(collection(db, "posts", postId, "comments"), orderBy("createdAt", "asc"));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function deleteComment(postId, commentId) {
+  await deleteDoc(doc(db, "posts", postId, "comments", commentId));
+}
+
 // ── 관심 종목 ──
 
 export async function getFavorites(uid) {

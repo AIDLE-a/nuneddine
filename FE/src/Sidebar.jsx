@@ -47,6 +47,10 @@ function Sidebar({ user, setUser, setFavorites, setHistory, isDarkMode, setIsDar
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           분석
         </NavLink>
+        <NavLink to="/community" className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          커뮤니티
+        </NavLink>
         {user && (
           <>
             <NavLink to="/favorites" className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
