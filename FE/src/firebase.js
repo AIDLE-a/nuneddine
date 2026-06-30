@@ -90,12 +90,6 @@ export async function createPost(user, title, content) {
   return ref.id;
 }
 
-export async function getPosts(count = 20) {
-  const q = query(collection(db, "posts"), orderBy("createdAt", "desc"), limit(count));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
-}
-
 export async function getPost(postId) {
   const snap = await getDoc(doc(db, "posts", postId));
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;

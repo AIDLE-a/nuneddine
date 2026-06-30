@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPosts, createPost, db } from '../firebase.js';
+import { createPost, db } from '../firebase.js';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 function timeAgo(ts) {
