@@ -1,6 +1,6 @@
 import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { signInWithPopup, signOut } from 'firebase/auth';
+import { signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth';
 import { auth, provider } from './firebase.js';
 
 function Sidebar({ user, setUser, setFavorites, setHistory, isDarkMode, setIsDarkMode }) {
@@ -8,7 +8,14 @@ function Sidebar({ user, setUser, setFavorites, setHistory, isDarkMode, setIsDar
 
   const handleLogin = async () => {
     try { await signInWithPopup(auth, provider); }
-    catch (e) { console.error('로그인 실패:', e); }
+    catch (e) {
+      // 팝업 차단 시 리다이렉트로 폴백 (윈도우/COOP 환경)
+      if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user' || e.message?.includes('Cross-Origin')) {
+        await signInWithRedirect(auth, provider);
+      } else {
+        console.error('로그인 실패:', e);
+      }
+    }
   };
 
   const handleLogout = async () => {
