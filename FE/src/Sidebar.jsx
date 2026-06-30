@@ -78,7 +78,10 @@ function Sidebar({ user, setUser, setFavorites, setHistory, isDarkMode, setIsDar
 
         {user ? (
           <NavLink to="/mypage" className={({ isActive }) => `sidebar-user${isActive ? ' active' : ''}`}>
-            <div className="sidebar-avatar">{initials}</div>
+            {user.photoURL
+              ? <img src={user.photoURL} className="sidebar-avatar-img" referrerPolicy="no-referrer" alt="" />
+              : <div className="sidebar-avatar">{initials}</div>
+            }
             <div className="sidebar-user-info">
               <span className="sidebar-user-name">{user.displayName}</span>
               <span className="sidebar-user-sub">마이페이지</span>

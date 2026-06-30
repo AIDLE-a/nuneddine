@@ -194,6 +194,13 @@ body {
 .sidebar-user:hover { background: var(--surface-2); }
 .sidebar-user.active { background: var(--surface-2); }
 
+.sidebar-avatar-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
 .sidebar-avatar {
   width: 32px;
   height: 32px;
