@@ -776,6 +776,26 @@ body {
 }
 .comment-action-btn:hover { color: var(--accent); }
 .comment-action-btn.danger:hover { color: #ef4444; }
+.comment-like-btn {
+  display: flex; align-items: center; gap: 3px;
+  font-size: 13px; background: none; border: none; cursor: pointer; padding: 0; color: var(--text-muted);
+}
+.comment-like-btn span { font-size: 12px; }
+.comment-like-btn.liked { color: #ef4444; }
+.comment-like-btn:disabled { cursor: default; opacity: 0.5; }
+.community-search-wrap {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 14px; margin-bottom: 14px;
+}
+.community-search-input {
+  flex: 1; font-size: 14px; color: var(--text-primary);
+  background: none; border: none; outline: none;
+}
+.community-search-clear {
+  background: none; border: none; color: var(--text-muted);
+  cursor: pointer; font-size: 12px; padding: 0;
+}
 .replies { margin-top: 4px; }
 .reply-write-box { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
 .reply-input {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getPost, getComments, addComment, deletePost, deleteComment } from '../firebase.js';
+import { getPost, getComments, addComment, deletePost, deleteComment, toggleCommentLike } from '../firebase.js';
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -17,10 +17,13 @@ function Avatar({ photo, name, size = 28 }) {
     : <div className="comment-avatar" style={{ width: size, height: size, fontSize: size * 0.4 }}>{(name?.[0] ?? '?').toUpperCase()}</div>;
 }
 
-function CommentItem({ comment, replies, user, postId, onDelete, onReply }) {
+function CommentItem({ comment, replies, user, postId, onDelete, onReply, onLike }) {
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [likes, setLikes] = useState(comment.likes ?? []);
+
+  const liked = user ? likes.includes(user.uid) : false;
 
   const handleReplySubmit = async () => {
     if (!replyText.trim()) return;
@@ -29,6 +32,12 @@ function CommentItem({ comment, replies, user, postId, onDelete, onReply }) {
       await onReply(replyText.trim(), comment.id);
       setReplyText(''); setReplying(false);
     } finally { setSubmitting(false); }
+  };
+
+  const handleLike = async () => {
+    if (!user) return;
+    const newLikes = await onLike(comment.id);
+    setLikes(newLikes);
   };
 
   return (
@@ -42,6 +51,13 @@ function CommentItem({ comment, replies, user, postId, onDelete, onReply }) {
           </div>
           <p className="comment-content">{comment.content}</p>
           <div className="comment-actions">
+            <button
+              className={`comment-like-btn${liked ? ' liked' : ''}`}
+              onClick={handleLike}
+              disabled={!user}
+            >
+              {liked ? '❤️' : '🤍'} {likes.length > 0 && <span>{likes.length}</span>}
+            </button>
             {user && (
               <button className="comment-action-btn" onClick={() => setReplying(v => !v)}>답글</button>
             )}
@@ -70,7 +86,7 @@ function CommentItem({ comment, replies, user, postId, onDelete, onReply }) {
         </div>
       </div>
 
-      {/* 대댓글 */}
+      {/* 대댓글 — 등록 순서대로 */}
       {replies.length > 0 && (
         <div className="replies">
           {replies.map(reply => (
@@ -83,11 +99,12 @@ function CommentItem({ comment, replies, user, postId, onDelete, onReply }) {
                     <span className="comment-time">{timeAgo(reply.createdAt)}</span>
                   </div>
                   <p className="comment-content">{reply.content}</p>
-                  {user?.uid === reply.authorUid && (
-                    <div className="comment-actions">
+                  <div className="comment-actions">
+                    <ReplyLikeBtn reply={reply} user={user} postId={postId} onLike={onLike} />
+                    {user?.uid === reply.authorUid && (
                       <button className="comment-action-btn danger" onClick={() => onDelete(reply.id)}>삭제</button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
@@ -95,6 +112,21 @@ function CommentItem({ comment, replies, user, postId, onDelete, onReply }) {
         </div>
       )}
     </div>
+  );
+}
+
+function ReplyLikeBtn({ reply, user, postId, onLike }) {
+  const [likes, setLikes] = useState(reply.likes ?? []);
+  const liked = user ? likes.includes(user.uid) : false;
+  const handleLike = async () => {
+    if (!user) return;
+    const newLikes = await onLike(reply.id);
+    setLikes(newLikes);
+  };
+  return (
+    <button className={`comment-like-btn${liked ? ' liked' : ''}`} onClick={handleLike} disabled={!user}>
+      {liked ? '❤️' : '🤍'} {likes.length > 0 && <span>{likes.length}</span>}
+    </button>
   );
 }
 
@@ -135,6 +167,10 @@ function PostDetailPage({ user }) {
     await reload();
   };
 
+  const handleLike = async (commentId) => {
+    return await toggleCommentLike(postId, commentId, user.uid);
+  };
+
   const handleDeletePost = async () => {
     if (!window.confirm('게시글을 삭제할까요?')) return;
     await deletePost(postId);
@@ -144,6 +180,7 @@ function PostDetailPage({ user }) {
   if (loading) return <div className="page-content"><div className="community-empty">불러오는 중...</div></div>;
   if (!post) return <div className="page-content"><div className="community-empty">게시글을 찾을 수 없습니다.</div></div>;
 
+  // 최신순(asc) 정렬 — getComments가 createdAt asc로 가져오므로 순서 유지
   const topComments = comments.filter(c => !c.parentId);
   const getReplies = (commentId) => comments.filter(c => c.parentId === commentId);
 
@@ -151,7 +188,6 @@ function PostDetailPage({ user }) {
     <div className="page-content">
       <button className="post-back-btn" onClick={() => navigate('/community')}>← 목록으로</button>
 
-      {/* 게시글 */}
       <div className="post-detail-card">
         <div className="post-author" style={{ marginBottom: 12 }}>
           <Avatar photo={post.authorPhoto} name={post.authorName} />
@@ -165,7 +201,6 @@ function PostDetailPage({ user }) {
         <p className="post-detail-content">{post.content}</p>
       </div>
 
-      {/* 댓글 목록 */}
       <div className="comments-section">
         <h3 className="comments-title">댓글 {comments.length}개</h3>
         {topComments.map(comment => (
@@ -177,11 +212,11 @@ function PostDetailPage({ user }) {
             postId={postId}
             onDelete={handleDeleteComment}
             onReply={handleReply}
+            onLike={handleLike}
           />
         ))}
       </div>
 
-      {/* 댓글 작성 */}
       {user ? (
         <div className="comment-write-box">
           <Avatar photo={user.photoURL} name={user.displayName} />

@@ -114,9 +114,19 @@ export async function addComment(user, postId, content, parentId = null) {
     authorName: user.displayName ?? '익명',
     authorPhoto: user.photoURL ?? null,
     createdAt: serverTimestamp(),
+    likes: [],
   });
-  // commentCount 증가
-  await updateDoc(doc(db, "posts", postId), { commentCount: (await getDoc(doc(db, "posts", postId))).data()?.commentCount + 1 ?? 1 });
+  const postSnap = await getDoc(doc(db, "posts", postId));
+  await updateDoc(doc(db, "posts", postId), { commentCount: (postSnap.data()?.commentCount ?? 0) + 1 });
+}
+
+export async function toggleCommentLike(postId, commentId, uid) {
+  const ref = doc(db, "posts", postId, "comments", commentId);
+  const snap = await getDoc(ref);
+  const likes = snap.data()?.likes ?? [];
+  const newLikes = likes.includes(uid) ? likes.filter(id => id !== uid) : [...likes, uid];
+  await updateDoc(ref, { likes: newLikes });
+  return newLikes;
 }
 
 export async function getComments(postId) {

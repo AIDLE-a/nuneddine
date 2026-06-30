@@ -19,6 +19,7 @@ function CommunityPage({ user }) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     getPosts().then(p => { setPosts(p); setLoading(false); });
@@ -28,7 +29,7 @@ function CommunityPage({ user }) {
     if (!title.trim() || !content.trim()) return;
     setSubmitting(true);
     try {
-      const id = await createPost(user, title.trim(), content.trim());
+      await createPost(user, title.trim(), content.trim());
       setTitle(''); setContent(''); setWriting(false);
       const updated = await getPosts();
       setPosts(updated);
@@ -37,12 +38,36 @@ function CommunityPage({ user }) {
     }
   };
 
+  const filteredPosts = searchQuery.trim()
+    ? posts.filter(p =>
+        p.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.authorName?.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : posts;
+
   return (
     <div className="page-content">
       <div className="page-header">
         <h1 className="page-title">커뮤니티</h1>
         {user && !writing && (
           <button className="btn-write" onClick={() => setWriting(true)}>글쓰기</button>
+        )}
+      </div>
+
+      {/* 검색 */}
+      <div className="community-search-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input
+          className="community-search-input"
+          placeholder="제목, 내용, 작성자 검색"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+        />
+        {searchQuery && (
+          <button className="community-search-clear" onClick={() => setSearchQuery('')}>✕</button>
         )}
       </div>
 
@@ -73,11 +98,13 @@ function CommunityPage({ user }) {
 
       {loading ? (
         <div className="community-empty">불러오는 중...</div>
-      ) : posts.length === 0 ? (
-        <div className="community-empty">첫 번째 글을 작성해보세요!</div>
+      ) : filteredPosts.length === 0 ? (
+        <div className="community-empty">
+          {searchQuery ? `"${searchQuery}" 검색 결과가 없습니다.` : '첫 번째 글을 작성해보세요!'}
+        </div>
       ) : (
         <div className="post-list">
-          {posts.map(post => (
+          {filteredPosts.map(post => (
             <div key={post.id} className="post-card" onClick={() => navigate(`/community/${post.id}`)}>
               <div className="post-card-header">
                 <div className="post-author">
