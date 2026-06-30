@@ -787,7 +787,7 @@ body {
 .comment-like-btn.liked { color: #ef4444; }
 .comment-like-btn:disabled { cursor: default; opacity: 0.5; }
 /* 게시글 공감 */
-.post-like-row { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.post-like-row { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; align-items: center; }
 .post-like-btn {
   display: flex; align-items: center; gap: 6px;
   font-size: 14px; background: var(--bg); border: 1px solid var(--border);
