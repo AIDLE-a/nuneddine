@@ -796,6 +796,7 @@ body {
 .post-like-btn.liked { color: #ef4444; border-color: #ef4444; background: #fff0f0; }
 .post-like-btn:disabled { cursor: default; opacity: 0.5; }
 .post-like-count { font-weight: 600; }
+.post-comment-stat { font-size: 13px; color: var(--text-muted); margin-left: 10px; }
 /* HOT 게시글 */
 .hot-posts-section {
   background: linear-gradient(135deg, #fff7ed, #fef3c7);

@@ -168,6 +168,7 @@ function PostDetailPage({ user }) {
           <button className={`post-like-btn${postLiked ? ' liked' : ''}`} onClick={handlePostLike} disabled={!user}>
             {postLiked ? '❤️' : '🤍'} 공감 {postLikes.length > 0 && <span className="post-like-count">{postLikes.length}</span>}
           </button>
+          <span className="post-comment-stat">💬 댓글 {comments.length}개</span>
         </div>
       </div>
 
