@@ -150,7 +150,8 @@ function AnalysisPage({
               type="text"
               value={searchTerm}
               onChange={handleSearchChange}
-              onFocus={() => { if (!selectedResult) { setSearchTerm(''); } setSearchResults([]); setIsDropdownOpen(true); }}
+              onFocus={() => { setSearchTerm(''); setSelectedResult(null); setSearchResults([]); setIsDropdownOpen(true); }}
+              onBlur={() => { setTimeout(() => { setIsDropdownOpen(false); if (!selectedResult) { setSearchTerm(selectedStock ? `${selectedStock.name} (${selectedStock.code})` : ''); } }, 150); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { setIsDropdownOpen(false); handleAnalysisClick(); } }}
               placeholder="종목명 또는 코드 검색 (예: 오뚜기, NVDA, TSLA)"
             />
