@@ -23,6 +23,7 @@ TICKER_KEYWORD_MAP = {
     "TSLA": "Tesla EV",
     "AAPL": "Apple iPhone",
     "035900.KS": "JYP Entertainment Kpop",
+    "035900.KQ": "JYP Entertainment Kpop",
     "041510.KS": "SM Entertainment Kpop",
     "035420.KS": "NAVER",
     "035720.KS": "Kakao",
@@ -54,13 +55,20 @@ def get_stock_data(ticker: str) -> StockDataResult:
 
 
 def _fetch_price(ticker: str) -> tuple[float, list[float]]:
-    stock = yf.Ticker(ticker)
-    hist = stock.history(period="10d")  # 충분히 가져와서 최근 7거래일 추출
-    if hist.empty:
-        raise ValueError(f"{ticker} 주가 데이터를 가져올 수 없습니다")
-    closes = [round(float(v), 2) for v in hist["Close"].tolist()]
-    recent_7 = closes[-7:]  # 최근 7거래일
-    return recent_7[-1], recent_7
+    import time
+    last_err = None
+    for attempt in range(3):
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="10d")
+            if not hist.empty:
+                closes = [round(float(v), 2) for v in hist["Close"].tolist()]
+                recent_7 = closes[-7:]
+                return recent_7[-1], recent_7
+        except Exception as e:
+            last_err = e
+        time.sleep(2 ** attempt)  # 1초, 2초, 4초 대기 후 재시도
+    raise ValueError(f"{ticker} 주가 데이터를 가져올 수 없습니다: {last_err}")
 
 
 def _fetch_news(ticker: str) -> list[NewsItem]:
