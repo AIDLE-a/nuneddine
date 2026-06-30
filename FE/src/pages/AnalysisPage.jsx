@@ -19,12 +19,14 @@ function AnalysisPage({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedResult, setSelectedResult] = useState(null); // 드롭다운에서 선택한 종목 기억
   const dropdownRef = useRef(null);
   const debounceRef = useRef(null);
 
   const handleSearchChange = (e) => {
     const val = e.target.value;
     setSearchTerm(val);
+    setSelectedResult(null);
     setIsDropdownOpen(true);
     clearTimeout(debounceRef.current);
     const clean = val.replace(/\s*\(.*\)/, '').trim();
@@ -57,12 +59,18 @@ function AnalysisPage({
       newsCount: '-', newsStatus: '적정', chartData: [], news: [], aiReport: '', aiWarning: '',
     };
     setSearchTerm(`${result.name} (${result.ticker})`);
+    setSelectedResult(stock);
     setIsDropdownOpen(false);
     setSearchResults([]);
-    onAnalyze(stock);
   };
 
   const handleAnalysisClick = () => {
+    // 드롭다운에서 선택한 종목이 있으면 그걸 그대로 사용
+    if (selectedResult) {
+      setIsDropdownOpen(false);
+      onAnalyze(selectedResult);
+      return;
+    }
     const raw = searchTerm.trim();
     const codeMatch = raw.match(/\(([^)]+)\)/);
     const ticker = codeMatch ? codeMatch[1] : raw;
