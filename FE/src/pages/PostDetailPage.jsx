@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getPost, getComments, addComment, deletePost, deleteComment, toggleCommentLike, togglePostLike } from '../firebase.js';
+import { getPost, getComments, addComment, deletePost, deleteComment, toggleCommentLike, togglePostLike, updateComment } from '../firebase.js';
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -18,10 +18,12 @@ function Avatar({ photo, name, size = 28 }) {
 }
 
 // 개별 댓글/대댓글 행 — 재사용
-function CommentRow({ comment, user, isReply, onLike, onReply, onDelete }) {
+function CommentRow({ comment, user, isReply, onLike, onReply, onDelete, onEdit }) {
   const [likes, setLikes] = useState(comment.likes ?? []);
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(comment.content);
   const [submitting, setSubmitting] = useState(false);
   const liked = user ? likes.includes(user.uid) : false;
 
@@ -35,9 +37,17 @@ function CommentRow({ comment, user, isReply, onLike, onReply, onDelete }) {
     if (!replyText.trim()) return;
     setSubmitting(true);
     try {
-      // 대댓글의 대댓글도 같은 parentId(최상위 댓글 id)로 유지 → 1단계 들여쓰기 고정
       await onReply(replyText.trim(), comment.parentId ?? comment.id);
       setReplyText(''); setReplying(false);
+    } finally { setSubmitting(false); }
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editText.trim()) return;
+    setSubmitting(true);
+    try {
+      await onEdit(comment.id, editText.trim());
+      setEditing(false);
     } finally { setSubmitting(false); }
   };
 
@@ -49,8 +59,27 @@ function CommentRow({ comment, user, isReply, onLike, onReply, onDelete }) {
           <div className="comment-meta">
             <span className="comment-author">{comment.authorName}</span>
             <span className="comment-time">{timeAgo(comment.createdAt)}</span>
+            {comment.editedAt && <span className="comment-edited">(수정됨)</span>}
           </div>
-          <p className="comment-content">{comment.content}</p>
+          {editing ? (
+            <div className="reply-write-box">
+              <textarea
+                className="reply-input"
+                value={editText}
+                onChange={e => setEditText(e.target.value)}
+                rows={2}
+                autoFocus
+              />
+              <div className="post-write-actions">
+                <button className="btn-cancel" onClick={() => { setEditing(false); setEditText(comment.content); }}>취소</button>
+                <button className="btn-save" onClick={handleEditSubmit} disabled={submitting || !editText.trim()}>
+                  {submitting ? '저장 중...' : '저장'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="comment-content">{comment.content}</p>
+          )}
           <div className="comment-actions">
             <button className={`comment-like-btn${liked ? ' liked' : ''}`} onClick={handleLike} disabled={!user}>
               {liked ? '❤️' : '🤍'}{likes.length > 0 && <span>{likes.length}</span>}
@@ -59,7 +88,10 @@ function CommentRow({ comment, user, isReply, onLike, onReply, onDelete }) {
               <button className="comment-action-btn" onClick={() => setReplying(v => !v)}>답글</button>
             )}
             {user?.uid === comment.authorUid && (
-              <button className="comment-action-btn danger" onClick={() => onDelete(comment.id)}>삭제</button>
+              <>
+                <button className="comment-action-btn" onClick={() => { setEditing(true); setReplying(false); }}>수정</button>
+                <button className="comment-action-btn danger" onClick={() => onDelete(comment.id)}>삭제</button>
+              </>
             )}
           </div>
           {replying && (
@@ -126,6 +158,11 @@ function PostDetailPage({ user }) {
     await reload();
   };
 
+  const handleEditComment = async (commentId, content) => {
+    await updateComment(postId, commentId, content);
+    await reload();
+  };
+
   const handleCommentLike = async (commentId) => {
     return await toggleCommentLike(postId, commentId, user.uid);
   };
@@ -183,6 +220,7 @@ function PostDetailPage({ user }) {
               onLike={handleCommentLike}
               onReply={handleReply}
               onDelete={handleDeleteComment}
+              onEdit={handleEditComment}
             />
             {getReplies(comment.id).map(reply => (
               <CommentRow
@@ -193,6 +231,7 @@ function PostDetailPage({ user }) {
                 onLike={handleCommentLike}
                 onReply={handleReply}
                 onDelete={handleDeleteComment}
+                onEdit={handleEditComment}
               />
             ))}
           </div>

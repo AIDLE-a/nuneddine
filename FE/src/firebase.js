@@ -148,6 +148,10 @@ export async function deleteComment(postId, commentId) {
   await deleteDoc(doc(db, "posts", postId, "comments", commentId));
 }
 
+export async function updateComment(postId, commentId, content) {
+  await updateDoc(doc(db, "posts", postId, "comments", commentId), { content, editedAt: serverTimestamp() });
+}
+
 // ── 관심 종목 ──
 
 export async function getFavorites(uid) {
