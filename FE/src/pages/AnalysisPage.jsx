@@ -71,6 +71,21 @@ function AnalysisPage({
       onAnalyze(selectedResult);
       return;
     }
+    // 검색 결과가 있으면 첫 번째 항목 사용
+    if (searchResults.length > 0) {
+      const first = searchResults[0];
+      const existing = MOCK_STOCKS.find(s => s.code === first.ticker);
+      const stock = existing ?? {
+        name: first.name, code: first.ticker, exchange: first.exchange ?? '',
+        price: '-', change: '-', isPositive: true,
+        predict7d: '-', range: '-', sentiment: '-', sentimentSub: '-',
+        newsCount: '-', newsStatus: '적정', chartData: [], news: [], aiReport: '', aiWarning: '',
+      };
+      setSearchTerm(`${first.name} (${first.ticker})`);
+      setIsDropdownOpen(false);
+      onAnalyze(stock);
+      return;
+    }
     const raw = searchTerm.trim();
     const codeMatch = raw.match(/\(([^)]+)\)/);
     const ticker = codeMatch ? codeMatch[1] : raw;
@@ -114,7 +129,7 @@ function AnalysisPage({
               type="text"
               value={searchTerm}
               onChange={handleSearchChange}
-              onFocus={() => { setSearchTerm(''); setSearchResults([]); setIsDropdownOpen(true); }}
+              onFocus={() => { if (!selectedResult) { setSearchTerm(''); } setSearchResults([]); setIsDropdownOpen(true); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { setIsDropdownOpen(false); handleAnalysisClick(); } }}
               placeholder="종목명 또는 코드 검색 (예: 오뚜기, NVDA, TSLA)"
             />
