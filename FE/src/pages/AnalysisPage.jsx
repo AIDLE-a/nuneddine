@@ -197,7 +197,16 @@ function AnalysisPage({
       <div className="stock-hero-card">
         <div>
           <p className="stock-hero-ticker">{selectedStock.code}</p>
-          <h2 className="stock-hero-name">{selectedStock.name}</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h2 className="stock-hero-name">{selectedStock.name}</h2>
+            <button
+              onClick={onToggleFavorite}
+              title={isFavorite ? '관심 종목 해제' : '관심 종목 추가'}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, lineHeight: 1, padding: 0 }}
+            >
+              {isFavorite ? '⭐' : '☆'}
+            </button>
+          </div>
         </div>
         <div className="stock-hero-right">
           <p className="stock-hero-price">{analysis
