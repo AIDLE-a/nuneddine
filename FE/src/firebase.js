@@ -4,9 +4,9 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObjec
 import {
   getFirestore,
   doc, getDoc, setDoc, updateDoc,
-  arrayUnion, arrayRemove,
-  collection, addDoc, getDocs, deleteDoc,
-  query, orderBy, limit, where, serverTimestamp,
+  arrayUnion,
+  collection, getDocs, deleteDoc,
+  query, orderBy, limit, serverTimestamp,
   runTransaction,
 } from "firebase/firestore";
 
