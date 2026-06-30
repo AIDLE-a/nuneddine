@@ -110,8 +110,10 @@ export async function addComment(user, postId, content, parentId = null) {
     createdAt: serverTimestamp(),
     likes: [],
   });
-  const postSnap = await getDoc(doc(db, "posts", postId));
-  await updateDoc(doc(db, "posts", postId), { commentCount: (postSnap.data()?.commentCount ?? 0) + 1 });
+  try {
+    const postSnap = await getDoc(doc(db, "posts", postId));
+    await updateDoc(doc(db, "posts", postId), { commentCount: (postSnap.data()?.commentCount ?? 0) + 1 });
+  } catch (_) {}
 }
 
 export async function toggleCommentLike(postId, commentId, uid) {
