@@ -34,9 +34,10 @@ app.add_middleware(
 
 # Firebase Admin SDK 초기화 (firebase_config.json 파일이 BE/ 폴더에 있어야 함)
 try:
-    cred = credentials.Certificate("firebase_config.json")
-    firebase_admin.initialize_app(cred)
-    print("🚀 Firebase Admin SDK 초기화 성공!")
+    if not firebase_admin._apps:
+        cred = credentials.Certificate("firebase_config.json")
+        firebase_admin.initialize_app(cred)
+        print("🚀 Firebase Admin SDK 초기화 성공!")
 except Exception as e:
     print(f"⚠️  Firebase 초기화 실패 (로그인 기능 비활성화): {e}")
 
