@@ -8,7 +8,6 @@ import {
   query, orderBy, limit, where, serverTimestamp,
   runTransaction,
 } from "firebase/firestore";
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -23,7 +22,6 @@ const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const provider = new GoogleAuthProvider();
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 
 // ── 닉네임 (중복 체크 + Firestore 저장) ──
 
@@ -55,18 +53,6 @@ export async function updateDisplayName(user, newName) {
   });
 
   await updateProfile(auth.currentUser, { displayName: newName });
-}
-
-// ── 프로필 사진 ──
-
-export async function uploadProfilePhoto(user, file) {
-  const ext = file.name.split('.').pop();
-  const photoRef = storageRef(storage, `profile_photos/${user.uid}.${ext}`);
-  await uploadBytes(photoRef, file);
-  const url = await getDownloadURL(photoRef);
-  await updateProfile(auth.currentUser, { photoURL: url });
-  await setDoc(doc(db, "users", user.uid), { photoURL: url }, { merge: true });
-  return url;
 }
 
 // ── 관심 종목 ──
