@@ -129,6 +129,15 @@ export async function toggleCommentLike(postId, commentId, uid) {
   return newLikes;
 }
 
+export async function togglePostLike(postId, uid) {
+  const ref = doc(db, "posts", postId);
+  const snap = await getDoc(ref);
+  const likes = snap.data()?.likes ?? [];
+  const newLikes = likes.includes(uid) ? likes.filter(id => id !== uid) : [...likes, uid];
+  await updateDoc(ref, { likes: newLikes });
+  return newLikes;
+}
+
 export async function getComments(postId) {
   const q = query(collection(db, "posts", postId, "comments"), orderBy("createdAt", "asc"));
   const snap = await getDocs(q);

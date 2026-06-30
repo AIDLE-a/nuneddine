@@ -756,8 +756,11 @@ body {
 /* 댓글 */
 .comments-section { margin-bottom: 16px; }
 .comments-title { font-size: 14px; font-weight: 600; color: var(--text-primary); margin-bottom: 12px; }
-.comment-item { padding: 14px 0; border-bottom: 1px solid var(--border); }
-.comment-item.reply { padding-left: 36px; }
+/* 댓글 그룹 — 그룹 사이에만 구분선 */
+.comment-group { padding: 14px 0; }
+.comment-group.has-border { border-bottom: 1px solid var(--border); }
+.comment-row { padding: 6px 0; }
+.comment-row.reply { padding-left: 36px; }
 .comment-main { display: flex; gap: 10px; align-items: flex-start; }
 .comment-avatar {
   border-radius: 50%; background: var(--accent-bg); color: var(--accent);
@@ -783,6 +786,36 @@ body {
 .comment-like-btn span { font-size: 12px; }
 .comment-like-btn.liked { color: #ef4444; }
 .comment-like-btn:disabled { cursor: default; opacity: 0.5; }
+/* 게시글 공감 */
+.post-like-row { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.post-like-btn {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 14px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 20px; padding: 6px 16px; cursor: pointer; color: var(--text-muted);
+}
+.post-like-btn.liked { color: #ef4444; border-color: #ef4444; background: #fff0f0; }
+.post-like-btn:disabled { cursor: default; opacity: 0.5; }
+.post-like-count { font-weight: 600; }
+/* HOT 게시글 */
+.hot-posts-section {
+  background: linear-gradient(135deg, #fff7ed, #fef3c7);
+  border: 1px solid #fcd34d; border-radius: 14px;
+  padding: 14px 18px; margin-bottom: 14px;
+}
+.dark .hot-posts-section, body.dark-mode .hot-posts-section {
+  background: linear-gradient(135deg, #2a1f0a, #1f1a0a);
+  border-color: #78540a;
+}
+.hot-posts-label { font-size: 13px; font-weight: 700; color: #b45309; margin-bottom: 10px; }
+.hot-post-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 0; cursor: pointer; gap: 12px;
+  border-bottom: 1px solid #fde68a;
+}
+.hot-post-item:last-child { border-bottom: none; padding-bottom: 0; }
+.hot-post-title { font-size: 13px; color: var(--text-primary); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hot-post-title:hover { text-decoration: underline; }
+.hot-post-likes { font-size: 12px; color: #ef4444; font-weight: 600; flex-shrink: 0; }
 .community-search-wrap {
   display: flex; align-items: center; gap: 8px;
   background: var(--surface); border: 1px solid var(--border);

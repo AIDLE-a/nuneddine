@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getPosts, createPost } from '../firebase.js';
+import { getPosts, createPost, db } from '../firebase.js';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -21,8 +22,14 @@ function CommunityPage({ user }) {
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // 실시간 구독 — 공감수 변경 즉시 반영
   useEffect(() => {
-    getPosts().then(p => { setPosts(p); setLoading(false); });
+    const q = query(collection(db, 'posts'), orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, snap => {
+      setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+    return () => unsub();
   }, []);
 
   const handleSubmit = async () => {
@@ -31,12 +38,12 @@ function CommunityPage({ user }) {
     try {
       await createPost(user, title.trim(), content.trim());
       setTitle(''); setContent(''); setWriting(false);
-      const updated = await getPosts();
-      setPosts(updated);
     } finally {
       setSubmitting(false);
     }
   };
+
+  const hotPosts = posts.filter(p => (p.likes?.length ?? 0) >= 10);
 
   const filteredPosts = searchQuery.trim()
     ? posts.filter(p =>
@@ -54,6 +61,19 @@ function CommunityPage({ user }) {
           <button className="btn-write" onClick={() => setWriting(true)}>글쓰기</button>
         )}
       </div>
+
+      {/* HOT 게시글 */}
+      {hotPosts.length > 0 && (
+        <div className="hot-posts-section">
+          <div className="hot-posts-label">🔥 지금 HOT한 글!</div>
+          {hotPosts.map(post => (
+            <div key={post.id} className="hot-post-item" onClick={() => navigate(`/community/${post.id}`)}>
+              <span className="hot-post-title">{post.title}</span>
+              <span className="hot-post-likes">❤️ {post.likes?.length ?? 0}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 검색 */}
       <div className="community-search-wrap">
@@ -115,7 +135,10 @@ function CommunityPage({ user }) {
                   <span className="post-author-name">{post.authorName}</span>
                   <span className="post-time">{timeAgo(post.createdAt)}</span>
                 </div>
-                <span className="post-comment-count">💬 {post.commentCount ?? 0}</span>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  {(post.likes?.length ?? 0) > 0 && <span className="post-comment-count">❤️ {post.likes.length}</span>}
+                  <span className="post-comment-count">💬 {post.commentCount ?? 0}</span>
+                </div>
               </div>
               <h3 className="post-title">{post.title}</h3>
               <p className="post-preview">{post.content.slice(0, 100)}{post.content.length > 100 ? '...' : ''}</p>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getPost, getComments, addComment, deletePost, deleteComment, toggleCommentLike } from '../firebase.js';
+import { getPost, getComments, addComment, deletePost, deleteComment, toggleCommentLike, togglePostLike } from '../firebase.js';
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -17,22 +17,13 @@ function Avatar({ photo, name, size = 28 }) {
     : <div className="comment-avatar" style={{ width: size, height: size, fontSize: size * 0.4 }}>{(name?.[0] ?? '?').toUpperCase()}</div>;
 }
 
-function CommentItem({ comment, replies, user, postId, onDelete, onReply, onLike }) {
+// 개별 댓글/대댓글 행 — 재사용
+function CommentRow({ comment, user, isReply, onLike, onReply, onDelete }) {
+  const [likes, setLikes] = useState(comment.likes ?? []);
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [likes, setLikes] = useState(comment.likes ?? []);
-
   const liked = user ? likes.includes(user.uid) : false;
-
-  const handleReplySubmit = async () => {
-    if (!replyText.trim()) return;
-    setSubmitting(true);
-    try {
-      await onReply(replyText.trim(), comment.id);
-      setReplyText(''); setReplying(false);
-    } finally { setSubmitting(false); }
-  };
 
   const handleLike = async () => {
     if (!user) return;
@@ -40,10 +31,20 @@ function CommentItem({ comment, replies, user, postId, onDelete, onReply, onLike
     setLikes(newLikes);
   };
 
+  const handleReplySubmit = async () => {
+    if (!replyText.trim()) return;
+    setSubmitting(true);
+    try {
+      // 대댓글의 대댓글도 같은 parentId(최상위 댓글 id)로 유지 → 1단계 들여쓰기 고정
+      await onReply(replyText.trim(), comment.parentId ?? comment.id);
+      setReplyText(''); setReplying(false);
+    } finally { setSubmitting(false); }
+  };
+
   return (
-    <div className="comment-item">
+    <div className={`comment-row${isReply ? ' reply' : ''}`}>
       <div className="comment-main">
-        <Avatar photo={comment.authorPhoto} name={comment.authorName} />
+        <Avatar photo={comment.authorPhoto} name={comment.authorName} size={isReply ? 24 : 28} />
         <div className="comment-body">
           <div className="comment-meta">
             <span className="comment-author">{comment.authorName}</span>
@@ -51,12 +52,8 @@ function CommentItem({ comment, replies, user, postId, onDelete, onReply, onLike
           </div>
           <p className="comment-content">{comment.content}</p>
           <div className="comment-actions">
-            <button
-              className={`comment-like-btn${liked ? ' liked' : ''}`}
-              onClick={handleLike}
-              disabled={!user}
-            >
-              {liked ? '❤️' : '🤍'} {likes.length > 0 && <span>{likes.length}</span>}
+            <button className={`comment-like-btn${liked ? ' liked' : ''}`} onClick={handleLike} disabled={!user}>
+              {liked ? '❤️' : '🤍'}{likes.length > 0 && <span>{likes.length}</span>}
             </button>
             {user && (
               <button className="comment-action-btn" onClick={() => setReplying(v => !v)}>답글</button>
@@ -85,48 +82,7 @@ function CommentItem({ comment, replies, user, postId, onDelete, onReply, onLike
           )}
         </div>
       </div>
-
-      {/* 대댓글 — 등록 순서대로 */}
-      {replies.length > 0 && (
-        <div className="replies">
-          {replies.map(reply => (
-            <div key={reply.id} className="comment-item reply">
-              <div className="comment-main">
-                <Avatar photo={reply.authorPhoto} name={reply.authorName} size={24} />
-                <div className="comment-body">
-                  <div className="comment-meta">
-                    <span className="comment-author">{reply.authorName}</span>
-                    <span className="comment-time">{timeAgo(reply.createdAt)}</span>
-                  </div>
-                  <p className="comment-content">{reply.content}</p>
-                  <div className="comment-actions">
-                    <ReplyLikeBtn reply={reply} user={user} postId={postId} onLike={onLike} />
-                    {user?.uid === reply.authorUid && (
-                      <button className="comment-action-btn danger" onClick={() => onDelete(reply.id)}>삭제</button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
-  );
-}
-
-function ReplyLikeBtn({ reply, user, postId, onLike }) {
-  const [likes, setLikes] = useState(reply.likes ?? []);
-  const liked = user ? likes.includes(user.uid) : false;
-  const handleLike = async () => {
-    if (!user) return;
-    const newLikes = await onLike(reply.id);
-    setLikes(newLikes);
-  };
-  return (
-    <button className={`comment-like-btn${liked ? ' liked' : ''}`} onClick={handleLike} disabled={!user}>
-      {liked ? '❤️' : '🤍'} {likes.length > 0 && <span>{likes.length}</span>}
-    </button>
   );
 }
 
@@ -135,13 +91,16 @@ function PostDetailPage({ user }) {
   const navigate = useNavigate();
   const [post, setPost] = useState(null);
   const [comments, setComments] = useState([]);
+  const [postLikes, setPostLikes] = useState([]);
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const reload = async () => {
     const [p, c] = await Promise.all([getPost(postId), getComments(postId)]);
-    setPost(p); setComments(c);
+    setPost(p);
+    setPostLikes(p?.likes ?? []);
+    setComments(c);
     setLoading(false);
   };
 
@@ -167,8 +126,14 @@ function PostDetailPage({ user }) {
     await reload();
   };
 
-  const handleLike = async (commentId) => {
+  const handleCommentLike = async (commentId) => {
     return await toggleCommentLike(postId, commentId, user.uid);
+  };
+
+  const handlePostLike = async () => {
+    if (!user) return;
+    const newLikes = await togglePostLike(postId, user.uid);
+    setPostLikes(newLikes);
   };
 
   const handleDeletePost = async () => {
@@ -180,9 +145,9 @@ function PostDetailPage({ user }) {
   if (loading) return <div className="page-content"><div className="community-empty">불러오는 중...</div></div>;
   if (!post) return <div className="page-content"><div className="community-empty">게시글을 찾을 수 없습니다.</div></div>;
 
-  // 최신순(asc) 정렬 — getComments가 createdAt asc로 가져오므로 순서 유지
   const topComments = comments.filter(c => !c.parentId);
   const getReplies = (commentId) => comments.filter(c => c.parentId === commentId);
+  const postLiked = user ? postLikes.includes(user.uid) : false;
 
   return (
     <div className="page-content">
@@ -199,21 +164,37 @@ function PostDetailPage({ user }) {
         </div>
         <h2 className="post-detail-title">{post.title}</h2>
         <p className="post-detail-content">{post.content}</p>
+        <div className="post-like-row">
+          <button className={`post-like-btn${postLiked ? ' liked' : ''}`} onClick={handlePostLike} disabled={!user}>
+            {postLiked ? '❤️' : '🤍'} 공감 {postLikes.length > 0 && <span className="post-like-count">{postLikes.length}</span>}
+          </button>
+        </div>
       </div>
 
       <div className="comments-section">
         <h3 className="comments-title">댓글 {comments.length}개</h3>
-        {topComments.map(comment => (
-          <CommentItem
-            key={comment.id}
-            comment={comment}
-            replies={getReplies(comment.id)}
-            user={user}
-            postId={postId}
-            onDelete={handleDeleteComment}
-            onReply={handleReply}
-            onLike={handleLike}
-          />
+        {topComments.map((comment, idx) => (
+          <div key={comment.id} className={`comment-group${idx < topComments.length - 1 ? ' has-border' : ''}`}>
+            <CommentRow
+              comment={comment}
+              user={user}
+              isReply={false}
+              onLike={handleCommentLike}
+              onReply={handleReply}
+              onDelete={handleDeleteComment}
+            />
+            {getReplies(comment.id).map(reply => (
+              <CommentRow
+                key={reply.id}
+                comment={reply}
+                user={user}
+                isReply={true}
+                onLike={handleCommentLike}
+                onReply={handleReply}
+                onDelete={handleDeleteComment}
+              />
+            ))}
+          </div>
         ))}
       </div>
 
