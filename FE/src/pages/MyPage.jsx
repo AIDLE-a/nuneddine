@@ -1,14 +1,20 @@
-import React, { useState } from 'react';
-import { signOut, updateProfile } from 'firebase/auth';
+import React, { useState, useRef } from 'react';
+import { signOut } from 'firebase/auth';
 import { auth } from '../firebase.js';
+import { updateDisplayName, uploadProfilePhoto, isNameTaken } from '../firebase.js';
 import { useNavigate } from 'react-router-dom';
 
 function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, isDarkMode, setIsDarkMode }) {
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
+
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(user?.displayName ?? '');
   const [nameSaving, setNameSaving] = useState(false);
   const [nameError, setNameError] = useState('');
+
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState('');
 
   const handleLogout = async () => {
     try {
@@ -21,14 +27,17 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
   const handleSaveName = async () => {
     const trimmed = nameInput.trim();
     if (!trimmed) { setNameError('이름을 입력해주세요.'); return; }
+    if (trimmed === user?.displayName) { setEditingName(false); return; }
     setNameSaving(true);
     setNameError('');
     try {
-      await updateProfile(auth.currentUser, { displayName: trimmed });
+      const taken = await isNameTaken(trimmed, user.uid);
+      if (taken) { setNameError('이미 사용 중인 이름입니다.'); return; }
+      await updateDisplayName(user, trimmed);
       setUser({ ...user, displayName: trimmed });
       setEditingName(false);
     } catch (e) {
-      setNameError('저장에 실패했습니다. 다시 시도해주세요.');
+      setNameError(e.message ?? '저장에 실패했습니다. 다시 시도해주세요.');
     } finally {
       setNameSaving(false);
     }
@@ -38,6 +47,24 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
     setNameInput(user?.displayName ?? '');
     setNameError('');
     setEditingName(false);
+  };
+
+  const handlePhotoChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setPhotoError('이미지 파일만 업로드할 수 있습니다.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setPhotoError('5MB 이하 파일만 업로드할 수 있습니다.'); return; }
+    setPhotoUploading(true);
+    setPhotoError('');
+    try {
+      const url = await uploadProfilePhoto(user, file);
+      setUser({ ...user, photoURL: url });
+    } catch (e) {
+      setPhotoError('업로드에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setPhotoUploading(false);
+      e.target.value = '';
+    }
   };
 
   const initials = user?.displayName
@@ -52,10 +79,28 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
 
       {/* 프로필 카드 */}
       <div className="mypage-profile-card">
-        {user?.photoURL
-          ? <img src={user.photoURL} alt="프로필" className="mypage-avatar-img" referrerPolicy="no-referrer" />
-          : <div className="mypage-avatar">{initials}</div>
-        }
+        <div className="mypage-avatar-wrap">
+          {user?.photoURL
+            ? <img src={user.photoURL} alt="프로필" className="mypage-avatar-img" referrerPolicy="no-referrer" />
+            : <div className="mypage-avatar">{initials}</div>
+          }
+          <button
+            className="mypage-avatar-edit-btn"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={photoUploading}
+            title="프로필 사진 변경"
+          >
+            {photoUploading ? '…' : '✎'}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={handlePhotoChange}
+          />
+        </div>
+
         <div className="mypage-profile-info">
           {editingName ? (
             <div className="mypage-name-edit">
@@ -84,6 +129,7 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
             </div>
           )}
           <p className="mypage-email">{user?.email ?? ''}</p>
+          {photoError && <p className="mypage-name-error" style={{ marginTop: 4 }}>{photoError}</p>}
         </div>
       </div>
 
