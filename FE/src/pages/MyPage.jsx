@@ -1,10 +1,14 @@
-import React from 'react';
-import { signOut } from 'firebase/auth';
+import React, { useState } from 'react';
+import { signOut, updateProfile } from 'firebase/auth';
 import { auth } from '../firebase.js';
 import { useNavigate } from 'react-router-dom';
 
 function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, isDarkMode, setIsDarkMode }) {
   const navigate = useNavigate();
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(user?.displayName ?? '');
+  const [nameSaving, setNameSaving] = useState(false);
+  const [nameError, setNameError] = useState('');
 
   const handleLogout = async () => {
     try {
@@ -12,6 +16,28 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
       setUser(null); setFavorites([]); setHistory([]);
       navigate('/');
     } catch (e) { console.error('로그아웃 실패:', e); }
+  };
+
+  const handleSaveName = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed) { setNameError('이름을 입력해주세요.'); return; }
+    setNameSaving(true);
+    setNameError('');
+    try {
+      await updateProfile(auth.currentUser, { displayName: trimmed });
+      setUser({ ...user, displayName: trimmed });
+      setEditingName(false);
+    } catch (e) {
+      setNameError('저장에 실패했습니다. 다시 시도해주세요.');
+    } finally {
+      setNameSaving(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setNameInput(user?.displayName ?? '');
+    setNameError('');
+    setEditingName(false);
   };
 
   const initials = user?.displayName
@@ -26,9 +52,37 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
 
       {/* 프로필 카드 */}
       <div className="mypage-profile-card">
-        <div className="mypage-avatar">{initials}</div>
+        {user?.photoURL
+          ? <img src={user.photoURL} alt="프로필" className="mypage-avatar-img" referrerPolicy="no-referrer" />
+          : <div className="mypage-avatar">{initials}</div>
+        }
         <div className="mypage-profile-info">
-          <h2 className="mypage-name">{user?.displayName ?? '사용자'}</h2>
+          {editingName ? (
+            <div className="mypage-name-edit">
+              <input
+                className="mypage-name-input"
+                value={nameInput}
+                onChange={e => setNameInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') handleCancelEdit(); }}
+                autoFocus
+                maxLength={20}
+              />
+              {nameError && <p className="mypage-name-error">{nameError}</p>}
+              <div className="mypage-name-actions">
+                <button className="btn-save" onClick={handleSaveName} disabled={nameSaving}>
+                  {nameSaving ? '저장 중...' : '저장'}
+                </button>
+                <button className="btn-cancel" onClick={handleCancelEdit}>취소</button>
+              </div>
+            </div>
+          ) : (
+            <div className="mypage-name-row">
+              <h2 className="mypage-name">{user?.displayName ?? '사용자'}</h2>
+              <button className="btn-edit-name" onClick={() => { setNameInput(user?.displayName ?? ''); setEditingName(true); }}>
+                편집
+              </button>
+            </div>
+          )}
           <p className="mypage-email">{user?.email ?? ''}</p>
         </div>
       </div>
