@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, updateProfile } from "firebase/auth";
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject, listAll } from "firebase/storage";
 import {
   getFirestore,
   doc, getDoc, setDoc, updateDoc,
@@ -60,7 +60,14 @@ export async function updateDisplayName(user, newName) {
 // ── 프로필 사진 ──
 
 export async function uploadProfilePhoto(user, blob) {
-  const photoRef = storageRef(storage, `profile_photos/${user.uid}.jpg`);
+  // 기존 사진 전부 삭제
+  const folder = storageRef(storage, `profile_photos/${user.uid}`);
+  try {
+    const list = await listAll(folder);
+    await Promise.all(list.items.map(item => deleteObject(item)));
+  } catch (_) {}
+
+  const photoRef = storageRef(storage, `profile_photos/${user.uid}/photo.jpg`);
   await uploadBytes(photoRef, blob, { contentType: 'image/jpeg' });
   const url = await getDownloadURL(photoRef);
   await updateProfile(auth.currentUser, { photoURL: url });
