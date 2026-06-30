@@ -335,3 +335,8 @@ def analyze(ticker: str = "005930.KS"):
         confidence_score=confidence_score,
         explanation=sentiment_result.explanation,
     )
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
