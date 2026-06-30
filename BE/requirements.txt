@@ -4,7 +4,7 @@ firebase-admin==6.5.0
 pydantic==2.7.0
 
 # 유빈 담당: 데이터 수집
-yfinance==0.2.40
+yfinance==1.5.1
 requests==2.32.3
 pandas==2.2.2
 
