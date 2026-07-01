@@ -25,12 +25,12 @@ function AnalysisPage({
   const dropdownRef = useRef(null);
   const debounceRef = useRef(null);
 
-  // selectedStock이 외부(WatchlistPanel, 히스토리, 랭킹 등)에서 바뀌면 검색창도 동기화
+  // selectedStock이 바뀌거나 포커스 해제 시 검색창 동기화
   useEffect(() => {
     if (!isFocused && selectedStock) {
       setSearchTerm(`${selectedStock.name} (${selectedStock.code})`);
     }
-  }, [selectedStock]);
+  }, [selectedStock, isFocused]);
 
   const handleSearchChange = (e) => {
     const val = e.target.value;
@@ -160,7 +160,7 @@ function AnalysisPage({
               value={searchTerm}
               onChange={handleSearchChange}
               onFocus={() => { setIsFocused(true); setSearchTerm(''); setSelectedResult(null); setSearchResults([]); setIsDropdownOpen(true); }}
-              onBlur={() => { setTimeout(() => { setIsFocused(false); setIsDropdownOpen(false); setSearchTerm(selectedStock ? `${selectedStock.name} (${selectedStock.code})` : ''); }, 150); }}
+              onBlur={() => { setTimeout(() => { setIsFocused(false); setIsDropdownOpen(false); }, 150); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { setIsDropdownOpen(false); handleAnalysisClick(); } }}
               placeholder="종목명 또는 코드 검색 (예: 오뚜기, NVDA, TSLA)"
             />
