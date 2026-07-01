@@ -218,8 +218,15 @@ function CommunityPage({ user }) {
                   <span className="post-comment-count">💬 {post.commentCount ?? 0}</span>
                 </div>
               </div>
-              <h3 className="post-title">{post.title}</h3>
-              <p className="post-preview">{post.content.slice(0, 100)}{post.content.length > 100 ? '...' : ''}</p>
+              <div className="post-card-body">
+                <div className="post-card-text">
+                  <h3 className="post-title">{post.title}</h3>
+                  <p className="post-preview">{post.content.slice(0, 100)}{post.content.length > 100 ? '...' : ''}</p>
+                </div>
+                {post.imageUrls?.length > 0 && (
+                  <img src={post.imageUrls[0]} className="post-thumb" alt="" />
+                )}
+              </div>
             </div>
           ))}
         </div>

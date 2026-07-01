@@ -126,6 +126,7 @@ function PostDetailPage({ user }) {
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
+  const [lightbox, setLightbox] = useState(null); // 현재 확대 중인 이미지 URL
 
   const showToast = (msg) => {
     setToast(msg);
@@ -210,9 +211,11 @@ function PostDetailPage({ user }) {
 
         {/* 이미지 */}
         {post.imageUrls?.length > 0 && (
-          <div className="post-images">
+          <div className="post-image-row">
             {post.imageUrls.map((url, i) => (
-              <img key={i} src={url} alt="" className="post-image" />
+              <div key={i} className="post-image-square" onClick={() => setLightbox(url)}>
+                <img src={url} alt="" />
+              </div>
             ))}
           </div>
         )}
@@ -302,6 +305,13 @@ function PostDetailPage({ user }) {
       </div>
 
       {toast && <div className="login-toast">{toast}</div>}
+
+      {lightbox && (
+        <div className="lightbox-overlay" onClick={() => setLightbox(null)}>
+          <img src={lightbox} className="lightbox-img" alt="" onClick={e => e.stopPropagation()} />
+          <button className="lightbox-close" onClick={() => setLightbox(null)}>✕</button>
+        </div>
+      )}
     </div>
   );
 }
