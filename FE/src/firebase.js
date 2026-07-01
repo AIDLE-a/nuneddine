@@ -4,7 +4,7 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObjec
 import {
   getFirestore,
   doc, getDoc, setDoc, updateDoc,
-  arrayUnion,
+  arrayUnion, increment,
   collection, getDocs, deleteDoc,
   query, orderBy, limit, serverTimestamp,
   runTransaction,
@@ -77,10 +77,12 @@ export async function uploadProfilePhoto(user, blob) {
 
 // ── 커뮤니티 (게시글 + 댓글) ──
 
-export async function createPost(user, title, content) {
-  const ref = doc(db, "posts", crypto.randomUUID());
+export async function createPost(user, title, content, imageUrls = [], poll = null, postId = null) {
+  const ref = doc(db, "posts", postId ?? crypto.randomUUID());
   await setDoc(ref, {
     title, content,
+    imageUrls,
+    poll, // null 또는 { options: [{text, votes:[]}] }
     authorUid: user.uid,
     authorName: user.displayName ?? '익명',
     authorPhoto: user.photoURL ?? null,
@@ -88,6 +90,51 @@ export async function createPost(user, title, content) {
     commentCount: 0,
   });
   return ref.id;
+}
+
+// 투표
+export async function votePoll(postId, optionIndex, uid) {
+  const ref = doc(db, "posts", postId);
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const poll = snap.data()?.poll;
+    if (!poll) return;
+    const options = poll.options.map((opt, i) => {
+      if (i !== optionIndex) return opt;
+      const votes = opt.votes ?? [];
+      // 이미 투표했으면 취소, 아니면 추가
+      const newVotes = votes.includes(uid)
+        ? votes.filter(v => v !== uid)
+        : [...votes, uid];
+      return { ...opt, votes: newVotes };
+    });
+    tx.update(ref, { 'poll.options': options });
+  });
+}
+
+// 게시글 이미지 업로드
+export async function uploadPostImages(postId, files) {
+  const urls = [];
+  for (const file of files) {
+    const ext = file.name.split('.').pop();
+    const imgRef = storageRef(storage, `post_images/${postId}/${crypto.randomUUID()}.${ext}`);
+    await uploadBytes(imgRef, file, { contentType: file.type });
+    urls.push(await getDownloadURL(imgRef));
+  }
+  return urls;
+}
+
+// 인기 주식 카운트 업데이트
+export async function incrementStockStat(ticker, name) {
+  const ref = doc(db, "stockStats", ticker.replace(/\./g, "_"));
+  await setDoc(ref, { ticker, name, count: increment(1), lastAnalyzed: serverTimestamp() }, { merge: true });
+}
+
+// 인기 주식 랭킹 조회
+export async function getStockRanking(count = 10) {
+  const q = query(collection(db, "stockStats"), orderBy("count", "desc"), limit(count));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
 export async function getPost(postId) {

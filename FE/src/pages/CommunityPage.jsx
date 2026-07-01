@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { createPost, db } from '../firebase.js';
+import { createPost, uploadPostImages, db } from '../firebase.js';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 
 function timeAgo(ts) {
@@ -22,8 +22,34 @@ function CommunityPage({ user }) {
   const [submitting, setSubmitting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [toast, setToast] = useState('');
+  const [images, setImages] = useState([]); // File[]
+  const [imagePreviews, setImagePreviews] = useState([]);
+  const [pollOptions, setPollOptions] = useState([]); // string[]
+  const [pollInput, setPollInput] = useState('');
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2500); };
+
+  const handleImageAdd = (e) => {
+    const files = Array.from(e.target.files);
+    const remaining = 5 - images.length;
+    const added = files.slice(0, remaining);
+    setImages(prev => [...prev, ...added]);
+    setImagePreviews(prev => [...prev, ...added.map(f => URL.createObjectURL(f))]);
+    e.target.value = '';
+  };
+
+  const removeImage = (idx) => {
+    setImages(prev => prev.filter((_, i) => i !== idx));
+    setImagePreviews(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const addPollOption = () => {
+    if (!pollInput.trim()) return;
+    setPollOptions(prev => [...prev, pollInput.trim()]);
+    setPollInput('');
+  };
+
+  const removePollOption = (idx) => setPollOptions(prev => prev.filter((_, i) => i !== idx));
 
   // 실시간 구독 — 공감수 변경 즉시 반영
   useEffect(() => {
@@ -39,8 +65,17 @@ function CommunityPage({ user }) {
     if (!title.trim() || !content.trim()) return;
     setSubmitting(true);
     try {
-      await createPost(user, title.trim(), content.trim());
+      const postId = crypto.randomUUID();
+      let imageUrls = [];
+      if (images.length > 0) {
+        imageUrls = await uploadPostImages(postId, images);
+      }
+      const poll = pollOptions.length > 0
+        ? { options: pollOptions.map(text => ({ text, votes: [] })) }
+        : null;
+      await createPost(user, title.trim(), content.trim(), imageUrls, poll, postId);
       setTitle(''); setContent(''); setWriting(false);
+      setImages([]); setImagePreviews([]); setPollOptions([]); setPollInput('');
     } finally {
       setSubmitting(false);
     }
@@ -108,8 +143,48 @@ function CommunityPage({ user }) {
             onChange={e => setContent(e.target.value)}
             rows={5}
           />
+
+          {/* 사진 첨부 */}
+          <div className="post-image-section">
+            <div className="post-image-previews">
+              {imagePreviews.map((src, i) => (
+                <div key={i} className="post-image-thumb">
+                  <img src={src} alt="" />
+                  <button className="post-image-remove" onClick={() => removeImage(i)}>✕</button>
+                </div>
+              ))}
+              {images.length < 5 && (
+                <label className="post-image-add">
+                  <input type="file" accept="image/*" multiple onChange={handleImageAdd} style={{ display: 'none' }} />
+                  <span>📷 {images.length > 0 ? `${images.length}/5` : '사진 추가'}</span>
+                </label>
+              )}
+            </div>
+          </div>
+
+          {/* 투표 */}
+          <div className="post-poll-section">
+            <div className="post-poll-label">📊 투표 추가 (선택)</div>
+            {pollOptions.map((opt, i) => (
+              <div key={i} className="poll-option-row">
+                <span className="poll-option-text">{opt}</span>
+                <button className="poll-option-remove" onClick={() => removePollOption(i)}>✕</button>
+              </div>
+            ))}
+            <div className="poll-input-row">
+              <input
+                className="poll-option-input"
+                placeholder="항목 입력 후 + 클릭"
+                value={pollInput}
+                onChange={e => setPollInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addPollOption()}
+              />
+              <button className="poll-option-add-btn" onClick={addPollOption}>+</button>
+            </div>
+          </div>
+
           <div className="post-write-actions">
-            <button className="btn-cancel" onClick={() => { setWriting(false); setTitle(''); setContent(''); }}>취소</button>
+            <button className="btn-cancel" onClick={() => { setWriting(false); setTitle(''); setContent(''); setImages([]); setImagePreviews([]); setPollOptions([]); }}>취소</button>
             <button className="btn-save" onClick={handleSubmit} disabled={submitting || !title.trim() || !content.trim()}>
               {submitting ? '등록 중...' : '등록'}
             </button>

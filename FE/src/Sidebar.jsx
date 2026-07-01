@@ -58,6 +58,10 @@ function Sidebar({ user, setUser, setFavorites, setHistory, isDarkMode, setIsDar
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           커뮤니티
         </NavLink>
+        <NavLink to="/ranking" className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+          인기 주식
+        </NavLink>
         {user && (
           <>
             <NavLink to="/favorites" className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>

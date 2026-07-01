@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getPost, getComments, addComment, deletePost, deleteComment, toggleCommentLike, togglePostLike, updateComment } from '../firebase.js';
+import { getPost, getComments, addComment, deletePost, deleteComment, toggleCommentLike, togglePostLike, updateComment, votePoll } from '../firebase.js';
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -207,6 +207,39 @@ function PostDetailPage({ user }) {
         </div>
         <h2 className="post-detail-title">{post.title}</h2>
         <p className="post-detail-content">{post.content}</p>
+
+        {/* 이미지 */}
+        {post.imageUrls?.length > 0 && (
+          <div className="post-images">
+            {post.imageUrls.map((url, i) => (
+              <img key={i} src={url} alt="" className="post-image" />
+            ))}
+          </div>
+        )}
+
+        {/* 투표 */}
+        {post.poll && (
+          <div className="post-poll">
+            <div className="post-poll-title">📊 투표</div>
+            {post.poll.options.map((opt, i) => {
+              const totalVotes = post.poll.options.reduce((s, o) => s + (o.votes?.length ?? 0), 0);
+              const myVote = user && (opt.votes ?? []).includes(user.uid);
+              const pct = totalVotes > 0 ? Math.round((opt.votes?.length ?? 0) / totalVotes * 100) : 0;
+              return (
+                <div key={i} className="poll-option" onClick={async () => {
+                  if (!user) { requireLogin(); return; }
+                  await votePoll(postId, i, user.uid);
+                  await reload();
+                }}>
+                  <div className="poll-option-bar" style={{ width: `${pct}%` }} />
+                  <span className={`poll-option-label${myVote ? ' my-vote' : ''}`}>{opt.text}</span>
+                  <span className="poll-option-pct">{pct}% ({opt.votes?.length ?? 0})</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         <div className="post-like-row">
           <button className={`post-like-btn${postLiked ? ' liked' : ''}`} onClick={handlePostLike} disabled={!user}>
             {postLiked ? '❤️' : '🤍'} 공감 {postLikes.length > 0 && <span className="post-like-count">{postLikes.length}</span>}

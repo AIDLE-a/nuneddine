@@ -9,9 +9,10 @@ import HistoryPage from './pages/HistoryPage.jsx';
 import MyPage from './pages/MyPage.jsx';
 import CommunityPage from './pages/CommunityPage.jsx';
 import PostDetailPage from './pages/PostDetailPage.jsx';
+import RankingPage from './pages/RankingPage.jsx';
 
 import { analyzeStock, getRelatedStocks } from './api.js';
-import { auth, saveHistory, getHistory, deleteHistory, addFavorite, removeFavorite, getFavorites } from './firebase.js';
+import { auth, saveHistory, getHistory, deleteHistory, addFavorite, removeFavorite, getFavorites, incrementStockStat } from './firebase.js';
 import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 import { provider } from './firebase.js';
 
@@ -184,6 +185,7 @@ function AppInner() {
       getRelatedStocks(stock.code)
         .then(results => setRecommendations(results))
         .catch(() => setRecommendations([]));
+      incrementStockStat(stock.code, stock.name).catch(() => {});
     }
   };
 
@@ -258,6 +260,7 @@ function AppInner() {
           } />
           <Route path="/community" element={<CommunityPage user={user} />} />
           <Route path="/community/:postId" element={<PostDetailPage user={user} />} />
+          <Route path="/ranking" element={<RankingPage onAnalyze={handleAnalyze} />} />
         </Routes>
       </main>
       {toast && <div className="login-toast">{toast}</div>}
