@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { getStockRanking } from '../firebase.js';
 import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../firebase.js';
+import { useNavigate } from 'react-router-dom';
 
 function RankingPage({ onAnalyze }) {
   const [ranking, setRanking] = useState([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const q = query(collection(db, 'stockStats'), orderBy('count', 'desc'), limit(10));
@@ -16,11 +17,12 @@ function RankingPage({ onAnalyze }) {
     return () => unsub();
   }, []);
 
-  const handleSelect = (item) => {
+  const handleAnalyze = (item) => {
     onAnalyze({ name: item.name, code: item.ticker,
       price: '-', change: '-', isPositive: true,
       predict7d: '-', range: '-', sentiment: '-', sentimentSub: '-',
       newsCount: '-', newsStatus: '적정', chartData: [], news: [], aiReport: '', aiWarning: '' });
+    navigate('/');
   };
 
   return (
@@ -37,13 +39,16 @@ function RankingPage({ onAnalyze }) {
       ) : (
         <div className="ranking-list">
           {ranking.map((item, idx) => (
-            <div key={item.id} className="ranking-item" onClick={() => handleSelect(item)}>
+            <div key={item.id} className="ranking-item">
               <span className={`ranking-num${idx < 3 ? ' top' : ''}`}>{idx + 1}</span>
               <div className="ranking-info">
                 <span className="ranking-name">{item.name}</span>
                 <span className="ranking-ticker">{item.ticker}</span>
               </div>
               <span className="ranking-count">🔍 {item.count}회</span>
+              <button className="ranking-analyze-btn" onClick={() => handleAnalyze(item)}>
+                나도 분석하기
+              </button>
             </div>
           ))}
         </div>
