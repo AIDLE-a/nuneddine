@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { MOCK_STOCKS } from '../App.jsx';
 import { searchStocks } from '../api.js';
+import { isKoreanStock, formatPrice } from '../currencyUtils.js';
 import SummaryCards from '../SummaryCards.jsx';
 import StockChartCard from '../StockChartCard.jsx';
 import ReliabilityCard from '../ReliabilityCard.jsx';
@@ -197,24 +198,27 @@ function AnalysisPage({
       <div className="stock-hero-card">
         <div>
           <p className="stock-hero-ticker">{selectedStock.code}</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <h2 className="stock-hero-name">{selectedStock.name}</h2>
             <button
               onClick={onToggleFavorite}
               title={isFavorite ? '관심 종목 해제' : '관심 종목 추가'}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, lineHeight: 1, padding: 0 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, padding: 0, display: 'flex', alignItems: 'center', lineHeight: 1 }}
             >
               {isFavorite ? '⭐' : '☆'}
             </button>
           </div>
         </div>
         <div className="stock-hero-right">
-          <p className="stock-hero-price">{analysis
-            ? (isNaN(analysis.price) ? analysis.price : Number(analysis.price).toLocaleString())
-            : selectedStock.price}
+          <p className="stock-hero-price">
+            {isLoading
+              ? '----'
+              : analysis
+                ? formatPrice(analysis.price, isKoreanStock(selectedStock, analysis))
+                : selectedStock.price}
           </p>
           <p className={`stock-hero-change ${selectedStock.isPositive ? 'positive' : 'negative'}`}>
-            {selectedStock.change}
+            {isLoading ? '----' : selectedStock.change}
           </p>
         </div>
       </div>

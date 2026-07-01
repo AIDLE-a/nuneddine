@@ -8,7 +8,7 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
         {['현재가', '7일 예측가', '감성 방향', '분석 뉴스'].map((title) => (
           <div key={title} className="card summary-card">
             <span className="card-title">{title}</span>
-            <span className="card-value text-muted">분석 중...</span>
+            <span className="card-value text-muted loading-dash">----</span>
           </div>
         ))}
       </div>
