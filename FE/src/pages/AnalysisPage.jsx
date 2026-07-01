@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MOCK_STOCKS } from '../App.jsx';
 import { searchStocks } from '../api.js';
+import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
+import { db } from '../firebase.js';
 import SummaryCards from '../SummaryCards.jsx';
 import StockChartCard from '../StockChartCard.jsx';
 import ReliabilityCard from '../ReliabilityCard.jsx';
@@ -21,8 +23,31 @@ function AnalysisPage({
   const [isSearching, setIsSearching] = useState(false);
   const [selectedResult, setSelectedResult] = useState(null);
   const [isFocused, setIsFocused] = useState(false);
+  const [popularList, setPopularList] = useState([]);
   const dropdownRef = useRef(null);
   const debounceRef = useRef(null);
+
+  // 인기 종목: 최근 1시간 분석 로그에서 실시간 집계
+  useEffect(() => {
+    const since = Timestamp.fromMillis(Date.now() - 60 * 60 * 1000);
+    const q = query(collection(db, 'stockAnalysisLog'), where('analyzedAt', '>=', since));
+    const unsub = onSnapshot(q, snap => {
+      const countMap = {};
+      snap.docs.forEach(d => {
+        const { ticker, name } = d.data();
+        if (!ticker) return;
+        if (!countMap[ticker]) countMap[ticker] = { ticker, name, count: 0 };
+        countMap[ticker].count += 1;
+      });
+      const sorted = Object.values(countMap).sort((a, b) => b.count - a.count).slice(0, 8);
+      // 로그 데이터가 없으면 MOCK_STOCKS fallback
+      setPopularList(sorted.length > 0
+        ? sorted.map(s => ({ ticker: s.ticker, name: s.name, exchange: '' }))
+        : MOCK_STOCKS.map(s => ({ ticker: s.code, name: s.name, exchange: '' }))
+      );
+    });
+    return () => unsub();
+  }, []);
 
   // selectedStock이 바뀌거나 포커스 해제 시 검색창 동기화
   useEffect(() => {
@@ -135,9 +160,7 @@ function AnalysisPage({
   };
 
   const showPopular = searchTerm.length === 0 || searchTerm.includes(')');
-  const displayList = showPopular
-    ? MOCK_STOCKS.map(s => ({ ticker: s.code, name: s.name, exchange: '', _stock: s }))
-    : searchResults;
+  const displayList = showPopular ? popularList : searchResults;
 
   const hasWarning = !analysis
     ? (selectedStock.newsStatus === '권장치 미달' || selectedStock.sentiment?.includes?.('혼재'))
@@ -161,7 +184,7 @@ function AnalysisPage({
               onFocus={() => { setIsFocused(true); setSearchTerm(''); setSelectedResult(null); setSearchResults([]); setIsDropdownOpen(true); }}
               onBlur={() => { setTimeout(() => { setIsFocused(false); setIsDropdownOpen(false); }, 150); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { setIsDropdownOpen(false); handleAnalysisClick(); } }}
-              placeholder="종목명 또는 코드 검색 (예: 오뚜기, NVDA, TSLA)"
+              placeholder="종목명 또는 코드 검색"
             />
           </div>
           {isDropdownOpen && (

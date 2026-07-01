@@ -42,7 +42,7 @@ function RankingPage({ onAnalyze }) {
   return (
     <div className="page-content">
       <div className="page-header">
-        <h1 className="page-title">인기 주식 랭킹</h1>
+        <h1 className="page-title">인기 종목 랭킹</h1>
       </div>
       <p className="ranking-subtitle">현재 실시간으로 분석이 많이 되고 있는 주식입니다.</p>
 
