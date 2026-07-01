@@ -2,6 +2,22 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { getPost, getComments, addComment, deletePost, deleteComment, toggleCommentLike, togglePostLike, updateComment, votePoll } from '../firebase.js';
 
+const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+
+function LinkedText({ text }) {
+  if (!text) return null;
+  const parts = text.split(URL_REGEX);
+  return (
+    <>
+      {parts.map((part, i) =>
+        URL_REGEX.test(part)
+          ? <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="inline-link">{part}</a>
+          : part
+      )}
+    </>
+  );
+}
+
 function timeAgo(ts) {
   if (!ts) return '';
   const sec = Math.floor((Date.now() - ts.toMillis()) / 1000);
@@ -78,7 +94,7 @@ function CommentRow({ comment, user, isReply, onLike, onReply, onDelete, onEdit,
               </div>
             </div>
           ) : (
-            <p className="comment-content">{comment.content}</p>
+            <p className="comment-content"><LinkedText text={comment.content} /></p>
           )}
           <div className="comment-actions">
             <button className={`comment-like-btn${liked ? ' liked' : ''}`} onClick={handleLike} disabled={!user}>
@@ -224,7 +240,7 @@ function PostDetailPage({ user }) {
           )}
         </div>
         <h2 className="post-detail-title">{post.title}</h2>
-        <p className="post-detail-content">{post.content}</p>
+        <p className="post-detail-content"><LinkedText text={post.content} /></p>
 
         {/* 이미지 */}
         {post.imageUrls?.length > 0 && (

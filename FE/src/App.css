@@ -953,3 +953,7 @@ body {
 .lightbox-nav.prev { left: 20px; }
 .lightbox-nav.next { right: 20px; }
 .lightbox-counter { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.75); font-size: 14px; font-weight: 500; }
+
+/* ── 인라인 링크 ── */
+.inline-link { color: var(--accent); text-decoration: underline; word-break: break-all; }
+.inline-link:hover { opacity: 0.78; }
