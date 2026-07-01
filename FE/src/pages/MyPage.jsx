@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { signOut } from 'firebase/auth';
 import { auth } from '../firebase.js';
-import { updateDisplayName, isNameTaken, uploadProfilePhoto } from '../firebase.js';
+import { updateDisplayName, isNameTaken, uploadProfilePhoto, getNotifSettings, updateNotifSettings } from '../firebase.js';
 import { useNavigate } from 'react-router-dom';
 import PhotoCropModal from '../components/PhotoCropModal.jsx';
 
@@ -17,6 +17,21 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
   const [cropFile, setCropFile] = useState(null);
   const [photoUploading, setPhotoUploading] = useState(false);
   const [photoError, setPhotoError] = useState('');
+
+  const NOTIF_LABELS = [
+    { key: 'like_post',     label: '게시글 공감', sub: '내 게시글에 공감이 달릴 때' },
+    { key: 'comment_post',  label: '게시글 댓글', sub: '내 게시글에 댓글이 달릴 때' },
+    { key: 'like_comment',  label: '댓글 공감',   sub: '내 댓글에 공감이 달릴 때' },
+    { key: 'reply_comment', label: '댓글 대댓글', sub: '내 댓글에 대댓글이 달릴 때' },
+  ];
+  const [notifSettings, setNotifSettings] = useState({ like_post: true, comment_post: true, like_comment: true, reply_comment: true });
+
+  useEffect(() => {
+    if (!user) return;
+    getNotifSettings(user.uid).then(s => {
+      setNotifSettings({ like_post: true, comment_post: true, like_comment: true, reply_comment: true, ...s });
+    });
+  }, [user?.uid]);
 
   const handleLogout = async () => {
     try {
@@ -158,6 +173,29 @@ function MyPage({ user, setUser, setFavorites, setHistory, favorites, history, i
           <p className="mypage-stat-value">{history.length}</p>
           <p className="mypage-stat-label">분석 기록</p>
         </div>
+      </div>
+
+      {/* 알림 설정 섹션 */}
+      <div className="mypage-section">
+        <h3 className="mypage-section-title">알림 설정</h3>
+        {NOTIF_LABELS.map(({ key, label, sub }) => (
+          <div className="mypage-setting-row" key={key}>
+            <div>
+              <p className="mypage-setting-label">{label}</p>
+              <p className="mypage-setting-sub">{sub}</p>
+            </div>
+            <button
+              className={`toggle-switch${notifSettings[key] !== false ? ' on' : ''}`}
+              onClick={async () => {
+                const next = { ...notifSettings, [key]: notifSettings[key] === false ? true : false };
+                setNotifSettings(next);
+                await updateNotifSettings(user.uid, next);
+              }}
+            >
+              <span className="toggle-thumb" />
+            </button>
+          </div>
+        ))}
       </div>
 
       {/* 설정 섹션 */}

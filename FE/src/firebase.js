@@ -75,6 +75,32 @@ export async function uploadProfilePhoto(user, blob) {
   return url;
 }
 
+// ── 알림 ──
+
+export async function addNotification(toUid, data) {
+  const ref = doc(collection(db, "notifications", toUid, "items"));
+  await setDoc(ref, { ...data, read: false, createdAt: serverTimestamp() });
+}
+
+export async function markNotificationRead(toUid, notifId) {
+  await updateDoc(doc(db, "notifications", toUid, "items", notifId), { read: true });
+}
+
+export async function markAllNotificationsRead(toUid) {
+  const q = query(collection(db, "notifications", toUid, "items"), orderBy("createdAt", "desc"), limit(50));
+  const snap = await getDocs(q);
+  await Promise.all(snap.docs.filter(d => !d.data().read).map(d => updateDoc(d.ref, { read: true })));
+}
+
+export async function getNotifSettings(uid) {
+  const snap = await getDoc(doc(db, "users", uid));
+  return snap.exists() ? (snap.data().notifSettings ?? {}) : {};
+}
+
+export async function updateNotifSettings(uid, settings) {
+  await setDoc(doc(db, "users", uid), { notifSettings: settings }, { merge: true });
+}
+
 // ── 커뮤니티 (게시글 + 댓글) ──
 
 export async function createPost(user, title, content, imageUrls = [], poll = null, postId = null) {
@@ -152,25 +178,74 @@ export async function addComment(user, postId, content, parentId = null) {
   });
   try {
     const postSnap = await getDoc(doc(db, "posts", postId));
-    await updateDoc(doc(db, "posts", postId), { commentCount: (postSnap.data()?.commentCount ?? 0) + 1 });
+    const postData = postSnap.data() ?? {};
+    await updateDoc(doc(db, "posts", postId), { commentCount: (postData.commentCount ?? 0) + 1 });
+    // 알림: 대댓글이면 부모 댓글 작성자에게, 댓글이면 게시글 작성자에게
+    if (parentId) {
+      const parentSnap = await getDoc(doc(db, "posts", postId, "comments", parentId));
+      const parentData = parentSnap.data() ?? {};
+      if (parentData.authorUid && parentData.authorUid !== user.uid) {
+        const settings = await getNotifSettings(parentData.authorUid);
+        if (settings.reply_comment !== false) {
+          await addNotification(parentData.authorUid, {
+            type: 'reply_comment', fromName: user.displayName ?? '누군가',
+            postId, postTitle: postData.title ?? '', commentId: parentId,
+          });
+        }
+      }
+    } else if (postData.authorUid && postData.authorUid !== user.uid) {
+      const settings = await getNotifSettings(postData.authorUid);
+      if (settings.comment_post !== false) {
+        await addNotification(postData.authorUid, {
+          type: 'comment_post', fromName: user.displayName ?? '누군가',
+          postId, postTitle: postData.title ?? '',
+        });
+      }
+    }
   } catch (_) {}
 }
 
-export async function toggleCommentLike(postId, commentId, uid) {
+export async function toggleCommentLike(postId, commentId, user) {
+  const uid = user.uid;
   const ref = doc(db, "posts", postId, "comments", commentId);
   const snap = await getDoc(ref);
-  const likes = snap.data()?.likes ?? [];
-  const newLikes = likes.includes(uid) ? likes.filter(id => id !== uid) : [...likes, uid];
+  const data = snap.data() ?? {};
+  const likes = data.likes ?? [];
+  const isLiking = !likes.includes(uid);
+  const newLikes = isLiking ? [...likes, uid] : likes.filter(id => id !== uid);
   await updateDoc(ref, { likes: newLikes });
+  if (isLiking && data.authorUid && data.authorUid !== uid) {
+    const postSnap = await getDoc(doc(db, "posts", postId));
+    const settings = await getNotifSettings(data.authorUid);
+    if (settings.like_comment !== false) {
+      await addNotification(data.authorUid, {
+        type: 'like_comment', fromName: user.displayName ?? '누군가',
+        postId, postTitle: postSnap.data()?.title ?? '', commentId,
+      });
+    }
+  }
   return newLikes;
 }
 
-export async function togglePostLike(postId, uid) {
+export async function togglePostLike(postId, user) {
+  const uid = user.uid;
   const ref = doc(db, "posts", postId);
   const snap = await getDoc(ref);
-  const likes = snap.data()?.likes ?? [];
-  const newLikes = likes.includes(uid) ? likes.filter(id => id !== uid) : [...likes, uid];
+  const data = snap.data() ?? {};
+  const likes = data.likes ?? [];
+  const isLiking = !likes.includes(uid);
+  const newLikes = isLiking ? [...likes, uid] : likes.filter(id => id !== uid);
   await updateDoc(ref, { likes: newLikes });
+  // 내 글이 아닐 때만 알림
+  if (isLiking && data.authorUid && data.authorUid !== uid) {
+    const settings = await getNotifSettings(data.authorUid);
+    if (settings.like_post !== false) {
+      await addNotification(data.authorUid, {
+        type: 'like_post', fromName: user.displayName ?? '누군가',
+        postId, postTitle: data.title ?? '',
+      });
+    }
+  }
   return newLikes;
 }
 

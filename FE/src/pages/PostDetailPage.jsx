@@ -204,12 +204,12 @@ function PostDetailPage({ user }) {
   };
 
   const handleCommentLike = async (commentId) => {
-    return await toggleCommentLike(postId, commentId, user.uid);
+    return await toggleCommentLike(postId, commentId, user);
   };
 
   const handlePostLike = async () => {
     if (!user) { requireLogin(); return; }
-    const newLikes = await togglePostLike(postId, user.uid);
+    const newLikes = await togglePostLike(postId, user);
     setPostLikes(newLikes);
   };
 

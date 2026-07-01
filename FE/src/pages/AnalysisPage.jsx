@@ -10,6 +10,7 @@ import SentimentCard from '../SentimentCard.jsx';
 import RecentNewsCard from '../RecentNewsCard.jsx';
 import AiReportCard from '../AiReportCard.jsx';
 import WatchlistPanel from '../WatchlistPanel.jsx';
+import NotificationBell from '../components/NotificationBell.jsx';
 
 function AnalysisPage({
   selectedStock, analysis, isLoading, loadingMsg,
@@ -206,6 +207,7 @@ function AnalysisPage({
           )}
         </div>
         <button className="btn-analyze" onClick={handleAnalysisClick}>분석 시작 →</button>
+        <NotificationBell user={user} />
       </div>
 
       {/* 관심 종목 패널 (로그인 시) */}
