@@ -64,7 +64,7 @@ function RankingPage({ onAnalyze }) {
           {ranking.map((item, idx) => {
             const price = prices[item.ticker];
             const currency = getStockCurrency({ code: item.ticker });
-            const priceStr = price != null ? formatPrice(price, currency) : null;
+            const priceStr = price != null ? formatPrice(price, currency) : '—';
             return (
               <div key={item.ticker} className="ranking-item">
                 <span className={`ranking-num${idx < 3 ? ' top' : ''}`}>{idx + 1}</span>
@@ -73,7 +73,7 @@ function RankingPage({ onAnalyze }) {
                   <span className="ranking-ticker">{item.ticker}</span>
                 </div>
                 <div className="ranking-right">
-                  {priceStr && <span className="ranking-price">{priceStr}</span>}
+                  <span className="ranking-price">{priceStr}</span>
                   <div className="ranking-count-badge">
                     <span className="ranking-count-num">{item.count}</span>
                     <span className="ranking-count-label">회 분석</span>

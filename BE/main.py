@@ -236,7 +236,8 @@ def _naver_search(q: str) -> list:
             code = item.get("code", "")
             name = item.get("name", "")
             type_code = item.get("typeCode", "KOSPI")
-            if not code or not name:
+            # 한국 주식 코드는 반드시 6자리 숫자 — 4자리 일본 코드 등 차단
+            if not code or not name or not (len(code) == 6 and code.isdigit()):
                 continue
             suffix = ".KQ" if type_code == "KOSDAQ" else ".KS"
             results.append({"ticker": code + suffix, "name": name, "exchange": type_code})
