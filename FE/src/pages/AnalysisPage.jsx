@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { MOCK_STOCKS } from '../App.jsx';
 import { searchStocks } from '../api.js';
 import { isKoreanStock, formatPrice } from '../currencyUtils.js';
@@ -20,9 +20,17 @@ function AnalysisPage({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [selectedResult, setSelectedResult] = useState(null); // 드롭다운에서 선택한 종목 기억
+  const [selectedResult, setSelectedResult] = useState(null);
+  const [isFocused, setIsFocused] = useState(false);
   const dropdownRef = useRef(null);
   const debounceRef = useRef(null);
+
+  // selectedStock이 외부(WatchlistPanel, 히스토리, 랭킹 등)에서 바뀌면 검색창도 동기화
+  useEffect(() => {
+    if (!isFocused && selectedStock) {
+      setSearchTerm(`${selectedStock.name} (${selectedStock.code})`);
+    }
+  }, [selectedStock]);
 
   const handleSearchChange = (e) => {
     const val = e.target.value;
@@ -151,8 +159,8 @@ function AnalysisPage({
               type="text"
               value={searchTerm}
               onChange={handleSearchChange}
-              onFocus={() => { setSearchTerm(''); setSelectedResult(null); setSearchResults([]); setIsDropdownOpen(true); }}
-              onBlur={() => { setTimeout(() => { setIsDropdownOpen(false); if (!selectedResult) { setSearchTerm(selectedStock ? `${selectedStock.name} (${selectedStock.code})` : ''); } }, 150); }}
+              onFocus={() => { setIsFocused(true); setSearchTerm(''); setSelectedResult(null); setSearchResults([]); setIsDropdownOpen(true); }}
+              onBlur={() => { setTimeout(() => { setIsFocused(false); setIsDropdownOpen(false); setSearchTerm(selectedStock ? `${selectedStock.name} (${selectedStock.code})` : ''); }, 150); }}
               onKeyDown={(e) => { if (e.key === 'Enter') { setIsDropdownOpen(false); handleAnalysisClick(); } }}
               placeholder="종목명 또는 코드 검색 (예: 오뚜기, NVDA, TSLA)"
             />
