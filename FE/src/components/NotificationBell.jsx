@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
-import { db, markNotificationRead, markAllNotificationsRead } from '../firebase.js';
+import { db, markNotificationRead, markAllNotificationsRead, getNotifSettings } from '../firebase.js';
 
 function timeAgo(ts) {
   if (!ts) return '';
@@ -24,8 +24,9 @@ function notifText(n) {
 
 export default function NotificationBell({ user }) {
   const [notifs, setNotifs] = useState([]);
+  const [settings, setSettings] = useState({});
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const wrapRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -33,37 +34,41 @@ export default function NotificationBell({ user }) {
     const q = query(
       collection(db, 'notifications', user.uid, 'items'),
       orderBy('createdAt', 'desc'),
-      limit(30)
+      limit(50)
     );
     const unsub = onSnapshot(q, snap => {
       setNotifs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
+    // 본인 설정은 본인 문서라 읽기 가능
+    getNotifSettings(user.uid).then(s => setSettings(s)).catch(() => {});
     return () => unsub();
-  }, [user]);
+  }, [user?.uid]);
 
   // 외부 클릭 시 닫기
   useEffect(() => {
-    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const handler = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const unreadCount = notifs.filter(n => !n.read).length;
+  // 사용자가 끈 타입은 뱃지·목록에서 제외
+  const visibleNotifs = notifs.filter(n => settings[n.type] !== false);
+  const unreadCount = visibleNotifs.filter(n => !n.read).length;
 
   const handleClick = async (n) => {
-    if (!n.read) await markNotificationRead(user.uid, n.id);
+    if (!n.read) await markNotificationRead(user.uid, n.id).catch(() => {});
     setOpen(false);
     navigate(`/community/${n.postId}`);
   };
 
   const handleMarkAll = async () => {
-    await markAllNotificationsRead(user.uid);
+    await markAllNotificationsRead(user.uid).catch(() => {});
   };
 
   if (!user) return null;
 
   return (
-    <div className="notif-wrap" ref={ref}>
+    <div className="notif-wrap" ref={wrapRef}>
       <button className="notif-bell-btn" onClick={() => setOpen(v => !v)} title="알림">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -81,9 +86,9 @@ export default function NotificationBell({ user }) {
             )}
           </div>
           <div className="notif-list">
-            {notifs.length === 0 ? (
+            {visibleNotifs.length === 0 ? (
               <div className="notif-empty">새 알림이 없어요</div>
-            ) : notifs.map(n => (
+            ) : visibleNotifs.map(n => (
               <div
                 key={n.id}
                 className={`notif-item${n.read ? ' read' : ''}`}
