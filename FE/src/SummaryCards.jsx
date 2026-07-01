@@ -1,5 +1,5 @@
 import React from 'react';
-import { isKoreanStock, formatPrice } from './currencyUtils.js';
+import { getStockCurrency, formatPrice } from './currencyUtils.js';
 
 function StockNameHeader({ stock, isFavorite, onToggleFavorite }) {
   return (
@@ -45,9 +45,11 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
 
   if (analysis) {
     const { price, prediction, sentiment, news } = analysis;
-    const korean = isKoreanStock(stock, analysis);
-    const formattedPrice = formatPrice(price, korean);
-    const formattedPredict = formatPrice(prediction.future_price, korean);
+    const currency = getStockCurrency(stock, analysis);
+    const formattedPrice = formatPrice(price, currency);
+    const formattedPredict = formatPrice(prediction.future_price, currency);
+    const formattedLower = formatPrice(prediction.lower, currency);
+    const formattedUpper = formatPrice(prediction.upper, currency);
     const posStr = Math.round(sentiment.positive * 100);
     const negStr = Math.round(sentiment.negative * 100);
     const sentimentLabel = posStr > 60 ? '긍정 압도' : posStr > negStr + 15 ? '긍정 우세' : negStr > posStr + 15 ? '부정 우세' : '중립 혼재';
@@ -64,11 +66,7 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
         <div className="card summary-card">
           <span className="card-title">7일 예측가</span>
           <span className="card-value">{formattedPredict}</span>
-          <span className="card-sub text-muted">
-            {korean
-              ? `${prediction.lower.toLocaleString()} ~ ${prediction.upper.toLocaleString()}원`
-              : `$${prediction.lower} ~ $${prediction.upper}`}
-          </span>
+          <span className="card-sub text-muted">{formattedLower} ~ {formattedUpper}</span>
         </div>
         <div className="card summary-card">
           <span className="card-title">감성 방향</span>

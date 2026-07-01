@@ -3,7 +3,7 @@ import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firest
 import { db } from '../firebase.js';
 import { useNavigate } from 'react-router-dom';
 import { fetchPrices } from '../api.js';
-import { isKoreanStock, formatPrice } from '../currencyUtils.js';
+import { getStockCurrency, formatPrice } from '../currencyUtils.js';
 
 function RankingPage({ onAnalyze }) {
   const [ranking, setRanking] = useState([]);
@@ -51,9 +51,9 @@ function RankingPage({ onAnalyze }) {
   return (
     <div className="page-content">
       <div className="page-header">
-        <h1 className="page-title">인기 종목 랭킹</h1>
+        <h1 className="page-title">인기 종목</h1>
       </div>
-      <p className="ranking-subtitle">현재 실시간으로 분석이 많이 되고 있는 주식입니다.</p>
+      <p className="ranking-subtitle">최근 1시간 기준 분석 횟수가 많은 종목입니다.</p>
 
       {loading ? (
         <div className="community-empty">불러오는 중...</div>
@@ -63,21 +63,25 @@ function RankingPage({ onAnalyze }) {
         <div className="ranking-list">
           {ranking.map((item, idx) => {
             const price = prices[item.ticker];
-            const korean = item.ticker.includes('.KS') || item.ticker.includes('.KQ');
-            const priceStr = price != null
-              ? formatPrice(price, korean)
-              : '—';
+            const currency = getStockCurrency({ code: item.ticker });
+            const priceStr = price != null ? formatPrice(price, currency) : null;
             return (
               <div key={item.ticker} className="ranking-item">
                 <span className={`ranking-num${idx < 3 ? ' top' : ''}`}>{idx + 1}</span>
                 <div className="ranking-info">
-                  <span className="ranking-name">{item.name} <span className="ranking-ticker">({item.ticker})</span></span>
+                  <span className="ranking-name">{item.name}</span>
+                  <span className="ranking-ticker">{item.ticker}</span>
                 </div>
-                <span className="ranking-price">{priceStr}</span>
-                <span className="ranking-count">분석 {item.count}회</span>
-                <button className="ranking-analyze-btn" onClick={() => handleAnalyze(item)}>
-                  나도 분석하기
-                </button>
+                <div className="ranking-right">
+                  {priceStr && <span className="ranking-price">{priceStr}</span>}
+                  <div className="ranking-count-badge">
+                    <span className="ranking-count-num">{item.count}</span>
+                    <span className="ranking-count-label">회 분석</span>
+                  </div>
+                  <button className="ranking-analyze-btn" onClick={() => handleAnalyze(item)}>
+                    나도 분석하기 →
+                  </button>
+                </div>
               </div>
             );
           })}

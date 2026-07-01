@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MOCK_STOCKS } from '../App.jsx';
 import { searchStocks, fetchPrices } from '../api.js';
-import { isKoreanStock, formatPrice } from '../currencyUtils.js';
+import { getStockCurrency, formatPrice } from '../currencyUtils.js';
 import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import SummaryCards from '../SummaryCards.jsx';
@@ -198,8 +198,8 @@ function AnalysisPage({
               <div className="dropdown-list">
                 {displayList.length > 0 ? displayList.map((r, i) => {
                   const price = showPopular ? popularPrices[r.ticker] : null;
-                  const korean = r.ticker?.includes('.KS') || r.ticker?.includes('.KQ');
-                  const priceStr = price != null ? formatPrice(price, korean) : null;
+                  const currency = getStockCurrency({ code: r.ticker, exchange: r.exchange });
+                  const priceStr = price != null ? formatPrice(price, currency) : null;
                   return (
                     <div key={i} className="dropdown-item" onClick={() => handleSelectResult(r)}>
                       <span className="stock-name">{r.name} <span className="stock-code">({r.ticker}{r.exchange ? ` · ${r.exchange}` : ''})</span></span>
