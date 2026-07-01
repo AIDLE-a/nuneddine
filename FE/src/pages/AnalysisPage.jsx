@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MOCK_STOCKS } from '../App.jsx';
 import { searchStocks } from '../api.js';
-import { isKoreanStock, formatPrice } from '../currencyUtils.js';
 import SummaryCards from '../SummaryCards.jsx';
 import StockChartCard from '../StockChartCard.jsx';
 import ReliabilityCard from '../ReliabilityCard.jsx';
@@ -201,35 +200,6 @@ function AnalysisPage({
       {isLoading && loadingMsg && (
         <div className="loading-banner">{loadingMsg}</div>
       )}
-
-      {/* 종목 헤더 */}
-      <div className="stock-hero-card">
-        <div>
-          <p className="stock-hero-ticker">{selectedStock.code}</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, lineHeight: 1 }}>
-            <h2 className="stock-hero-name" style={{ margin: 0, lineHeight: 1 }}>{selectedStock.name}</h2>
-            <button
-              onClick={onToggleFavorite}
-              title={isFavorite ? '관심 종목 해제' : '관심 종목 추가'}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, padding: 0, lineHeight: 1, display: 'block', position: 'relative', top: 1 }}
-            >
-              {isFavorite ? '⭐' : '☆'}
-            </button>
-          </div>
-        </div>
-        <div className="stock-hero-right">
-          <p className="stock-hero-price">
-            {isLoading
-              ? '----'
-              : analysis
-                ? formatPrice(analysis.price, isKoreanStock(selectedStock, analysis))
-                : selectedStock.price}
-          </p>
-          <p className={`stock-hero-change ${selectedStock.isPositive ? 'positive' : 'negative'}`}>
-            {isLoading ? '----' : selectedStock.change}
-          </p>
-        </div>
-      </div>
 
       {hasWarning && (
         <div className="alert-banner">⚠ {warningText}</div>

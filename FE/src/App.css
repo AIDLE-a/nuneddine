@@ -961,3 +961,12 @@ body {
 /* ── 분석 중 dash 애니메이션 ── */
 @keyframes dash-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 .loading-dash { animation: dash-blink 1.2s ease-in-out infinite; letter-spacing: 2px; }
+
+/* ── 요약 카드 내 종목 헤더 ── */
+.summary-card-main { justify-content: flex-start; }
+.summary-stock-header { display: flex; flex-direction: column; gap: 2px; width: 100%; }
+.summary-stock-meta { display: flex; align-items: center; gap: 6px; }
+.summary-stock-ticker { font-size: 11px; color: var(--text-muted); }
+.summary-stock-name-row { display: flex; align-items: center; gap: 5px; }
+.summary-stock-name { font-size: 16px; font-weight: 700; color: var(--text-primary); line-height: 1; }
+.summary-star-btn { background: none; border: none; cursor: pointer; font-size: 16px; padding: 0; line-height: 1; display: flex; align-items: center; }
