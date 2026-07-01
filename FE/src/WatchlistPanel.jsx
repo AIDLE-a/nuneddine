@@ -30,9 +30,12 @@ function WatchlistPanel({ favorites, history, recommendations, onSelectStock, on
       <div className="watchlist-panel">
         {/* 관심 종목 */}
         <div className="watchlist-section">
-          <h4 className="watchlist-title">⭐ 관심 종목</h4>
+          <h4 className="watchlist-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            관심 종목
+          </h4>
           {favorites.length === 0 ? (
-            <p className="watchlist-empty">현재가 카드의 ☆ 버튼으로 추가해보세요</p>
+            <p className="watchlist-empty">현재가 카드의 별 버튼으로 추가해보세요</p>
           ) : (
             <div className="watchlist-chips">
               {favorites.map(f => (
@@ -49,7 +52,10 @@ function WatchlistPanel({ favorites, history, recommendations, onSelectStock, on
 
         {/* 최근 분석 */}
         <div className="watchlist-section">
-          <h4 className="watchlist-title">🕒 최근 분석</h4>
+          <h4 className="watchlist-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            최근 분석
+          </h4>
           {history.length === 0 ? (
             <p className="watchlist-empty">분석 기록이 없습니다</p>
           ) : (
@@ -82,7 +88,10 @@ function WatchlistPanel({ favorites, history, recommendations, onSelectStock, on
       {/* 연관 종목 추천 — 별도 섹션 */}
       {Object.keys(recBySector).length > 0 && (
         <div className="rec-panel">
-          <h4 className="rec-panel-title">💡 연관 종목 추천</h4>
+          <h4 className="rec-panel-title">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            연관 종목 추천
+          </h4>
           <div className="rec-panel-body">
             {Object.entries(recBySector).map(([sector, recs]) => (
               <div key={sector} className="rec-sector-group">

@@ -508,7 +508,7 @@ body {
   padding: 14px 18px; min-width: 0; overflow: hidden;
 }
 .watchlist-section + .watchlist-section { border-left: 1px solid var(--border); }
-.watchlist-title { font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.04em; text-transform: uppercase; }
+.watchlist-title { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.04em; text-transform: uppercase; }
 .watchlist-empty { font-size: 12px; color: var(--text-muted); }
 .watchlist-chips { display: flex; gap: 6px; flex-wrap: wrap; overflow-y: auto; max-height: 100px; }
 .watchlist-chip {
@@ -529,7 +529,7 @@ body {
 
 /* Recommendations */
 .rec-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; }
-.rec-panel-title { font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px; }
+.rec-panel-title { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: var(--text-muted); letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 10px; }
 .rec-panel-body { display: flex; flex-wrap: wrap; gap: 14px 28px; }
 .rec-sector-group { display: flex; flex-direction: column; gap: 4px; min-width: 130px; }
 .rec-sector-label { font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.03em; margin-bottom: 2px; }
