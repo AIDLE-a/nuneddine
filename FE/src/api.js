@@ -47,3 +47,10 @@ export async function loginWithToken(idToken) {
   if (!res.ok) throw new Error("백엔드 로그인 실패");
   return res.json();
 }
+
+export async function fetchPrices(tickers) {
+  if (!tickers.length) return {};
+  const res = await fetch(`${BASE}/api/prices?tickers=${tickers.join(',')}`);
+  if (!res.ok) return {};
+  return res.json();
+}

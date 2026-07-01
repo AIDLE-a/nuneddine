@@ -992,3 +992,7 @@ body {
 .notif-text { font-size: 13px; color: var(--text-primary); line-height: 1.4; }
 .notif-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .notif-time { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+/* ── 드롭다운 가격 / 랭킹 가격 ── */
+.dropdown-price { font-size: 12px; font-weight: 600; color: var(--text-primary); margin-left: auto; flex-shrink: 0; }
+.ranking-price { font-size: 14px; font-weight: 600; color: var(--text-primary); min-width: 90px; text-align: right; flex-shrink: 0; }

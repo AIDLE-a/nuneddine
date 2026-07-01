@@ -283,6 +283,20 @@ def search_stocks(q: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── 현재가 일괄 조회 (랭킹·드롭다운용) ──
+@app.get("/api/prices")
+def get_prices(tickers: str):
+    import yfinance as yf
+    result = {}
+    for ticker in [t.strip() for t in tickers.split(",") if t.strip()]:
+        try:
+            info = yf.Ticker(ticker).fast_info
+            price = getattr(info, "last_price", None) or getattr(info, "regular_market_price", None)
+            result[ticker] = round(float(price), 2) if price else None
+        except Exception:
+            result[ticker] = None
+    return result
+
 # ── 채민 / 로그인팀 담당 ──
 @app.post("/api/login")
 async def login_check(authorization: str = Header(None)):

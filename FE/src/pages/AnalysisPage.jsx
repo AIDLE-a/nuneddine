@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MOCK_STOCKS } from '../App.jsx';
-import { searchStocks } from '../api.js';
+import { searchStocks, fetchPrices } from '../api.js';
+import { isKoreanStock, formatPrice } from '../currencyUtils.js';
 import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import SummaryCards from '../SummaryCards.jsx';
@@ -25,6 +26,7 @@ function AnalysisPage({
   const [selectedResult, setSelectedResult] = useState(null);
   const [isFocused, setIsFocused] = useState(false);
   const [popularList, setPopularList] = useState([]);
+  const [popularPrices, setPopularPrices] = useState({});
   const dropdownRef = useRef(null);
   const debounceRef = useRef(null);
 
@@ -41,11 +43,11 @@ function AnalysisPage({
         countMap[ticker].count += 1;
       });
       const sorted = Object.values(countMap).sort((a, b) => b.count - a.count).slice(0, 8);
-      // 로그 데이터가 없으면 MOCK_STOCKS fallback
-      setPopularList(sorted.length > 0
+      const list = sorted.length > 0
         ? sorted.map(s => ({ ticker: s.ticker, name: s.name, exchange: '' }))
-        : MOCK_STOCKS.map(s => ({ ticker: s.code, name: s.name, exchange: '' }))
-      );
+        : MOCK_STOCKS.map(s => ({ ticker: s.code, name: s.name, exchange: '' }));
+      setPopularList(list);
+      fetchPrices(list.map(s => s.ticker)).then(p => setPopularPrices(p)).catch(() => {});
     });
     return () => unsub();
   }, []);
@@ -194,12 +196,18 @@ function AnalysisPage({
                 {showPopular ? '인기 종목' : isSearching ? '검색 중...' : `검색 결과 ${displayList.length}건`}
               </div>
               <div className="dropdown-list">
-                {displayList.length > 0 ? displayList.map((r, i) => (
-                  <div key={i} className="dropdown-item" onClick={() => handleSelectResult(r)}>
-                    <span className="stock-name">{r.name}</span>
-                    <span className="stock-code">{r.ticker}{r.exchange ? ` · ${r.exchange}` : ''}</span>
-                  </div>
-                )) : !isSearching && (
+                {displayList.length > 0 ? displayList.map((r, i) => {
+                  const price = showPopular ? popularPrices[r.ticker] : null;
+                  const korean = r.ticker?.includes('.KS') || r.ticker?.includes('.KQ');
+                  const priceStr = price != null ? formatPrice(price, korean) : null;
+                  return (
+                    <div key={i} className="dropdown-item" onClick={() => handleSelectResult(r)}>
+                      <span className="stock-name">{r.name}</span>
+                      <span className="stock-code">{r.ticker}{r.exchange ? ` · ${r.exchange}` : ''}</span>
+                      {priceStr && <span className="dropdown-price">{priceStr}</span>}
+                    </div>
+                  );
+                }) : !isSearching && (
                   <div className="dropdown-no-result">검색 결과가 없습니다.</div>
                 )}
               </div>
