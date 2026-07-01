@@ -71,8 +71,7 @@ function RankingPage({ onAnalyze }) {
               <div key={item.ticker} className="ranking-item">
                 <span className={`ranking-num${idx < 3 ? ' top' : ''}`}>{idx + 1}</span>
                 <div className="ranking-info">
-                  <span className="ranking-name">{item.name}</span>
-                  <span className="ranking-ticker">{item.ticker}</span>
+                  <span className="ranking-name">{item.name} <span className="ranking-ticker">({item.ticker})</span></span>
                 </div>
                 <span className="ranking-price">{priceStr}</span>
                 <span className="ranking-count">분석 {item.count}회</span>

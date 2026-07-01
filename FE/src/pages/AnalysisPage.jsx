@@ -202,8 +202,7 @@ function AnalysisPage({
                   const priceStr = price != null ? formatPrice(price, korean) : null;
                   return (
                     <div key={i} className="dropdown-item" onClick={() => handleSelectResult(r)}>
-                      <span className="stock-name">{r.name}</span>
-                      <span className="stock-code">{r.ticker}{r.exchange ? ` · ${r.exchange}` : ''}</span>
+                      <span className="stock-name">{r.name} <span className="stock-code">({r.ticker}{r.exchange ? ` · ${r.exchange}` : ''})</span></span>
                       {priceStr && <span className="dropdown-price">{priceStr}</span>}
                     </div>
                   );
