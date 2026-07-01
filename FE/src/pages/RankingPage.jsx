@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, query, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, Timestamp } from 'firebase/firestore';
 import { db } from '../firebase.js';
 import { useNavigate } from 'react-router-dom';
 
@@ -9,9 +9,23 @@ function RankingPage({ onAnalyze }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const q = query(collection(db, 'stockStats'), orderBy('count', 'desc'), limit(10));
+    const since = Timestamp.fromMillis(Date.now() - 60 * 60 * 1000);
+    const q = query(
+      collection(db, 'stockAnalysisLog'),
+      where('analyzedAt', '>=', since)
+    );
     const unsub = onSnapshot(q, snap => {
-      setRanking(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const countMap = {};
+      snap.docs.forEach(d => {
+        const { ticker, name } = d.data();
+        if (!ticker) return;
+        if (!countMap[ticker]) countMap[ticker] = { ticker, name, count: 0 };
+        countMap[ticker].count += 1;
+      });
+      const sorted = Object.values(countMap)
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 10);
+      setRanking(sorted);
       setLoading(false);
     });
     return () => unsub();
@@ -45,7 +59,7 @@ function RankingPage({ onAnalyze }) {
                 <span className="ranking-name">{item.name}</span>
                 <span className="ranking-ticker">{item.ticker}</span>
               </div>
-              <span className="ranking-count">🔍 {item.count}회</span>
+              <span className="ranking-count">🔍 실시간 분석횟수 {item.count}번</span>
               <button className="ranking-analyze-btn" onClick={() => handleAnalyze(item)}>
                 나도 분석하기
               </button>

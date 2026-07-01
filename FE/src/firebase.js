@@ -124,17 +124,10 @@ export async function uploadPostImages(postId, files) {
   return urls;
 }
 
-// 인기 주식 카운트 업데이트
+// 분석 이벤트 기록 (최근 1시간 랭킹용)
 export async function incrementStockStat(ticker, name) {
-  const ref = doc(db, "stockStats", ticker.replace(/\./g, "_"));
-  await setDoc(ref, { ticker, name, count: increment(1), lastAnalyzed: serverTimestamp() }, { merge: true });
-}
-
-// 인기 주식 랭킹 조회
-export async function getStockRanking(count = 10) {
-  const q = query(collection(db, "stockStats"), orderBy("count", "desc"), limit(count));
-  const snap = await getDocs(q);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const ref = doc(collection(db, "stockAnalysisLog"));
+  await setDoc(ref, { ticker, name, analyzedAt: serverTimestamp() });
 }
 
 export async function getPost(postId) {
