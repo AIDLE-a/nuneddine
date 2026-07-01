@@ -289,12 +289,23 @@ def get_prices(tickers: str):
     import yfinance as yf
     result = {}
     for ticker in [t.strip() for t in tickers.split(",") if t.strip()]:
+        price = None
         try:
-            info = yf.Ticker(ticker).fast_info
-            price = getattr(info, "last_price", None) or getattr(info, "regular_market_price", None)
-            result[ticker] = round(float(price), 2) if price else None
+            t_obj = yf.Ticker(ticker)
+            fi = t_obj.fast_info
+            price = (
+                getattr(fi, "last_price", None)
+                or getattr(fi, "lastPrice", None)
+                or getattr(fi, "regular_market_price", None)
+                or getattr(fi, "regularMarketPrice", None)
+            )
+            if not price:
+                hist = t_obj.history(period="1d")
+                if not hist.empty:
+                    price = float(hist["Close"].iloc[-1])
         except Exception:
-            result[ticker] = None
+            pass
+        result[ticker] = round(float(price), 2) if price else None
     return result
 
 # ── 채민 / 로그인팀 담당 ──

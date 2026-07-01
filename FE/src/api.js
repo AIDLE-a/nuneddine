@@ -49,8 +49,12 @@ export async function loginWithToken(idToken) {
 }
 
 export async function fetchPrices(tickers) {
-  if (!tickers.length) return {};
-  const res = await fetch(`${BASE}/api/prices?tickers=${tickers.join(',')}`);
-  if (!res.ok) return {};
-  return res.json();
+  if (!tickers || !tickers.length) return {};
+  try {
+    const res = await fetch(`${API_BASE}/api/prices?tickers=${tickers.join(',')}`);
+    if (!res.ok) return {};
+    return res.json();
+  } catch {
+    return {};
+  }
 }

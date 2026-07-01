@@ -75,7 +75,7 @@ function RankingPage({ onAnalyze }) {
                   <span className="ranking-ticker">{item.ticker}</span>
                 </div>
                 <span className="ranking-price">{priceStr}</span>
-                <span className="ranking-count">🔍 실시간 분석횟수 {item.count}번</span>
+                <span className="ranking-count">분석 {item.count}회</span>
                 <button className="ranking-analyze-btn" onClick={() => handleAnalyze(item)}>
                   나도 분석하기
                 </button>

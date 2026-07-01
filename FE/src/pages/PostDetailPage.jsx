@@ -98,7 +98,11 @@ function CommentRow({ comment, user, isReply, onLike, onReply, onDelete, onEdit,
           )}
           <div className="comment-actions">
             <button className={`comment-like-btn${liked ? ' liked' : ''}`} onClick={handleLike} disabled={!user}>
-              {liked ? '❤️' : '🤍'}{likes.length > 0 && <span>{likes.length}</span>}
+              {liked
+                ? <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              }
+              {likes.length > 0 && <span>{likes.length}</span>}
             </button>
             <button className="comment-action-btn" onClick={() => user ? setReplying(v => !v) : onRequireLogin?.()}>답글</button>
             {user?.uid === comment.authorUid && (
@@ -228,7 +232,10 @@ function PostDetailPage({ user }) {
 
   return (
     <div className="page-content">
-      <button className="post-back-btn" onClick={() => navigate('/community')}>← 목록으로</button>
+      <button className="post-back-btn" onClick={() => navigate('/community')}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        목록으로
+      </button>
 
       <div className="post-detail-card">
         <div className="post-author" style={{ marginBottom: 12 }}>
@@ -256,7 +263,7 @@ function PostDetailPage({ user }) {
         {/* 투표 */}
         {post.poll && (
           <div className="post-poll">
-            <div className="post-poll-title">📊 투표</div>
+            <div className="post-poll-title">투표</div>
             {post.poll.options.map((opt, i) => {
               const totalVotes = post.poll.options.reduce((s, o) => s + (o.votes?.length ?? 0), 0);
               const myVote = user && (opt.votes ?? []).includes(user.uid);
@@ -278,14 +285,22 @@ function PostDetailPage({ user }) {
 
         <div className="post-like-row">
           <button className={`post-like-btn${postLiked ? ' liked' : ''}`} onClick={handlePostLike} disabled={!user}>
-            {postLiked ? '❤️' : '🤍'} 공감 {postLikes.length > 0 && <span className="post-like-count">{postLikes.length}</span>}
+            {postLiked
+              ? <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            }
+            공감
+            {postLikes.length > 0 && <span className="post-like-count">{postLikes.length}</span>}
           </button>
-          <span className="post-comment-stat">💬 댓글 {comments.length}개</span>
+          <span className="post-comment-stat">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            댓글 {comments.length}
+          </span>
         </div>
       </div>
 
       <div className="comments-section">
-        <h3 className="comments-title">댓글 {comments.length}개</h3>
+        <h3 className="comments-title">댓글 {comments.length}</h3>
         {topComments.map((comment, idx) => (
           <div key={comment.id} className={`comment-group${idx < topComments.length - 1 ? ' has-border' : ''}`}>
             <CommentRow
