@@ -946,3 +946,10 @@ body {
 .lightbox-img { max-width: 90vw; max-height: 88vh; border-radius: 12px; object-fit: contain; box-shadow: 0 8px 40px rgba(0,0,0,0.5); }
 .lightbox-close { position: fixed; top: 20px; right: 24px; background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 50%; width: 36px; height: 36px; font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .lightbox-close:hover { background: rgba(255,255,255,0.28); }
+
+/* ── 라이트박스 화살표 & 카운터 ── */
+.lightbox-nav { position: fixed; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.15); color: #fff; border: none; border-radius: 50%; width: 48px; height: 48px; font-size: 28px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; z-index: 9999; line-height: 1; }
+.lightbox-nav:hover { background: rgba(255,255,255,0.30); }
+.lightbox-nav.prev { left: 20px; }
+.lightbox-nav.next { right: 20px; }
+.lightbox-counter { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.75); font-size: 14px; font-weight: 500; }

@@ -126,7 +126,24 @@ function PostDetailPage({ user }) {
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState('');
-  const [lightbox, setLightbox] = useState(null); // 현재 확대 중인 이미지 URL
+  const [lightboxIdx, setLightboxIdx] = useState(null); // 현재 확대 중인 이미지 인덱스
+
+  const openLightbox = (idx) => setLightboxIdx(idx);
+  const closeLightbox = () => setLightboxIdx(null);
+  const lightboxImages = post?.imageUrls ?? [];
+  const showPrev = () => setLightboxIdx(i => (i - 1 + lightboxImages.length) % lightboxImages.length);
+  const showNext = () => setLightboxIdx(i => (i + 1) % lightboxImages.length);
+
+  useEffect(() => {
+    if (lightboxIdx === null) return;
+    const onKey = (e) => {
+      if (e.key === 'ArrowRight') showNext();
+      else if (e.key === 'ArrowLeft') showPrev();
+      else if (e.key === 'Escape') closeLightbox();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightboxIdx, lightboxImages.length]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -213,7 +230,7 @@ function PostDetailPage({ user }) {
         {post.imageUrls?.length > 0 && (
           <div className="post-image-row">
             {post.imageUrls.map((url, i) => (
-              <div key={i} className="post-image-square" onClick={() => setLightbox(url)}>
+              <div key={i} className="post-image-square" onClick={() => openLightbox(i)}>
                 <img src={url} alt="" />
               </div>
             ))}
@@ -306,10 +323,19 @@ function PostDetailPage({ user }) {
 
       {toast && <div className="login-toast">{toast}</div>}
 
-      {lightbox && (
-        <div className="lightbox-overlay" onClick={() => setLightbox(null)}>
-          <img src={lightbox} className="lightbox-img" alt="" onClick={e => e.stopPropagation()} />
-          <button className="lightbox-close" onClick={() => setLightbox(null)}>✕</button>
+      {lightboxIdx !== null && (
+        <div className="lightbox-overlay" onClick={closeLightbox}>
+          <button className="lightbox-close" onClick={closeLightbox}>✕</button>
+          {lightboxImages.length > 1 && (
+            <button className="lightbox-nav prev" onClick={e => { e.stopPropagation(); showPrev(); }}>‹</button>
+          )}
+          <img src={lightboxImages[lightboxIdx]} className="lightbox-img" alt="" onClick={e => e.stopPropagation()} />
+          {lightboxImages.length > 1 && (
+            <button className="lightbox-nav next" onClick={e => { e.stopPropagation(); showNext(); }}>›</button>
+          )}
+          {lightboxImages.length > 1 && (
+            <div className="lightbox-counter">{lightboxIdx + 1} / {lightboxImages.length}</div>
+          )}
         </div>
       )}
     </div>
