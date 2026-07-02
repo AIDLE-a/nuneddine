@@ -1,11 +1,13 @@
 """
 [담당: 유빈]
-yfinance + NewsAPI로 주가·뉴스 데이터를 수집.
+yfinance + NewsAPI(영어) + Naver API(한국어)로 주가·뉴스 데이터를 수집.
 스스로 "정보 불확실성"을 판단해서 같이 반환.
 
 환경변수:
   USE_MOCK_DATA=false  실제 API 사용
   NEWS_API_KEY=<key>   NewsAPI 키 (https://newsapi.org)
+  NAVER_CLIENT_ID=<id> 네이버 API Client ID
+  NAVER_CLIENT_SECRET=<secret> 네이버 API Client Secret
 """
 import os
 import requests
@@ -15,33 +17,34 @@ from schemas import StockDataResult, NewsItem
 
 USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
+NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID", "")
+NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")
 
-# 종목코드 → 영문 검색 키워드 매핑
+# 종목코드 → (영문 검색 키워드, 국문 검색 키워드) 튜플로 매핑
 TICKER_KEYWORD_MAP = {
-    "005930.KS": "Samsung Electronics semiconductor",
-    "000660.KS": "SK Hynix HBM memory",
-    "TSLA": "Tesla EV",
-    "AAPL": "Apple iPhone",
-    "035900.KS": "JYP Entertainment Kpop",
-    "035900.KQ": "JYP Entertainment Kpop",
-    "041510.KS": "SM Entertainment Kpop",
-    "035420.KS": "NAVER",
-    "035720.KS": "Kakao",
-    "005380.KS": "Hyundai Motor",
-    "000270.KS": "Kia Motors",
-    "373220.KS": "LG Energy Solution battery",
-    "006400.KS": "Samsung SDI battery",
-    "051910.KS": "LG Chem",
-    "207940.KS": "Samsung Biologics",
-    "068270.KS": "Celltrion",
-    "NVDA": "NVIDIA GPU AI",
-    "AMD": "AMD GPU processor",
-    "MSFT": "Microsoft Azure AI",
-    "GOOGL": "Google Alphabet AI",
-    "META": "Meta Facebook AI",
-    "MRNA": "Moderna mRNA vaccine",
+    "005930.KS": ("Samsung Electronics semiconductor", "삼성전자 반도체"),
+    "000660.KS": ("SK Hynix HBM memory", "SK하이닉스 HBM"),
+    "TSLA": ("Tesla EV", "테슬라 전기차"),
+    "AAPL": ("Apple iPhone", "애플 아이폰"),
+    "035900.KS": ("JYP Entertainment Kpop", "JYP엔터테인먼트"),
+    "035900.KQ": ("JYP Entertainment Kpop", "JYP엔터테인먼트"),
+    "041510.KS": ("SM Entertainment Kpop", "SM엔터테인먼트"),
+    "035420.KS": ("NAVER", "네이버"),
+    "035720.KS": ("Kakao", "카카오"),
+    "005380.KS": ("Hyundai Motor", "현대차"),
+    "000270.KS": ("Kia Motors", "기아"),
+    "373220.KS": ("LG Energy Solution battery", "LG에너지솔루션 배터리"),
+    "006400.KS": ("Samsung SDI battery", "삼성SDI 배터리"),
+    "051910.KS": ("LG Chem", "LG화학"),
+    "207940.KS": ("Samsung Biologics", "삼성바이오로직스"),
+    "068270.KS": ("Celltrion", "셀트리온"),
+    "NVDA": ("NVIDIA GPU AI", "엔비디아"),
+    "AMD": ("AMD GPU processor", "AMD 프로세서"),
+    "MSFT": ("Microsoft Azure AI", "마이크로소프트 AI"),
+    "GOOGL": ("Google Alphabet AI", "구글 AI"),
+    "META": ("Meta Facebook AI", "메타 AI"),
+    "MRNA": ("Moderna mRNA vaccine", "모더나 백신"),
 }
-
 
 def get_stock_data(ticker: str) -> StockDataResult:
     """메인 함수 — 오케스트레이터가 이 함수만 호출함"""
@@ -72,47 +75,86 @@ def _fetch_price(ticker: str) -> tuple[float, list[float]]:
 
 
 def _fetch_news(ticker: str) -> list[NewsItem]:
-    """NewsAPI에서 최근 7일 뉴스 수집 (유빈 담당)"""
-    if not NEWS_API_KEY:
-        return []
+    """NewsAPI(영어)와 Naver API(한국어)를 모두 호출하여 병합"""
+    combined_news = []
+    
+    # 키워드 가져오기 (매핑 안 된 종목은 티커명 자체를 검색어로 사용)
+    keywords = TICKER_KEYWORD_MAP.get(ticker, (ticker, ticker))
+    keyword_en = keywords[0]
+    keyword_kr = keywords[1]
 
-    keyword = TICKER_KEYWORD_MAP.get(ticker, ticker)
-    from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    # 1. NewsAPI 수집 (영어 기사)
+    if NEWS_API_KEY:
+        from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        url = "https://newsapi.org/v2/everything"
+        params = {
+            "q": keyword_en,
+            "apiKey": NEWS_API_KEY,
+            "language": "en",
+            "sortBy": "publishedAt",
+            "from": from_date,
+            "pageSize": 50,  # 기존 100개에서 조절
+        }
+        try:
+            response = requests.get(url, params=params, timeout=10)
+            if response.status_code == 200:
+                articles = response.json().get("articles", [])
+                base_keyword = keyword_en.split()[0].lower()
+                for a in articles:
+                    if a.get("title") and base_keyword in a["title"].lower():
+                        combined_news.append(NewsItem(
+                            title=a["title"],
+                            source=a.get("source", {}).get("name", "NewsAPI"),
+                            url=a.get("url", ""),
+                            published_at=a.get("publishedAt", "")
+                        ))
+        except Exception as e:
+            print(f"⚠️ NewsAPI 수집 실패: {e}")
 
-    url = "https://newsapi.org/v2/everything"
-    params = {
-        "q": keyword,
-        "apiKey": NEWS_API_KEY,
-        "language": "en",
-        "sortBy": "publishedAt",
-        "from": from_date,
-        "pageSize": 100,
-    }
+    # 2. Naver API 수집 (한국어 기사)
+    if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
+        naver_url = "https://openapi.naver.com/v1/search/news.json"
+        headers = {
+            "X-Naver-Client-Id": NAVER_CLIENT_ID,
+            "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
+        }
+        naver_params = {
+            "query": keyword_kr,
+            "display": 50,
+            "sort": "sim"
+        }
+        try:
+            res = requests.get(naver_url, headers=headers, params=naver_params, timeout=10)
+            if res.status_code == 200:
+                items = res.json().get("items", [])
+                for it in items:
+                    clean_title = it["title"].replace("<b>", "").replace("</b>", "").replace("&quot;", '"').replace("&amp;", "&")
+                    
+                    pub_date = it.get("pubDate", "")
+                    try:
+                        dt = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S +0900")
+                        iso_date = dt.isoformat()
+                    except Exception:
+                        iso_date = pub_date
 
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        articles = response.json().get("articles", [])
+                    combined_news.append(NewsItem(
+                        title=clean_title,
+                        source="네이버 뉴스",
+                        url=it.get("link", ""),
+                        published_at=iso_date
+                    ))
+        except Exception as e:
+            print(f"⚠️ 네이버 뉴스 수집 실패: {e}")
 
-        # 제목에 키워드가 포함된 것만 필터링 (filter_news.py 로직)
-        base_keyword = keyword.split()[0].lower()
-        filtered = [
-            a for a in articles
-            if a.get("title") and base_keyword in a["title"].lower()
-        ]
+    # 3. 중복 기사 제거 (제목 기준) 및 반환
+    seen_titles = set()
+    unique_news = []
+    for item in combined_news:
+        if item.title not in seen_titles:
+            seen_titles.add(item.title)
+            unique_news.append(item)
 
-        return [
-            NewsItem(
-                title=a["title"],
-                source=a.get("source", {}).get("name", ""),
-                url=a.get("url", ""),
-                published_at=a.get("publishedAt", ""),
-            )
-            for a in filtered
-        ]
-    except Exception as e:
-        print(f"⚠️ 뉴스 수집 실패: {e}")
-        return []
+    return unique_news
 
 
 def _check_info_uncertainty(news: list[NewsItem]) -> str | None:
