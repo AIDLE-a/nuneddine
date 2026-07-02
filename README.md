@@ -123,6 +123,8 @@ npm run dev
 ```env
 USE_MOCK_DATA=true        # false로 바꾸면 실제 API 호출
 NEWS_API_KEY=your_key     # https://newsapi.org 에서 발급
+NAVER_CLIENT_ID=your_key  # https://developers.naver.com 에서 발급
+NAVER_CLIENT_SECRET=your_key
 ```
 
 ### FE — `.env` 파일 (FE/ 폴더에 생성)
