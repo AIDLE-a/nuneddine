@@ -20,7 +20,7 @@ def _get_sentiment_score(text: str, finbert_pipe) -> float:
     return scores.get("positive", 0) - scores.get("negative", 0)
 
 
-def explain_sentiment(text: str, finbert_pipe, top_k: int = 4) -> list[dict]:
+def explain_sentiment(text: str, finbert_pipe, top_k: int = 4, max_words: int = 15) -> list[dict]:
     """
     단어별 기여도를 계산해서 영향력 순으로 반환.
 
@@ -30,11 +30,16 @@ def explain_sentiment(text: str, finbert_pipe, top_k: int = 4) -> list[dict]:
       {"word": "중국 경쟁사 압박", "contribution": -0.21},
       ...
     ]
+
+    max_words: 문장이 너무 길면 FinBERT 반복 호출(단어 수만큼)이 늘어나
+    응답이 느려지므로, 앞부분 max_words개까지만 잘라서 계산한다.
+    (제목 위주 텍스트라 앞부분에 핵심 정보가 오는 경우가 많아 큰 손실은 아님)
     """
     # 의미 단위로 나누기 (실제로는 형태소 분석기 추천, MVP는 간단히 어절 단위)
-    words = text.split()
+    words = text.split()[:max_words]
     if len(words) < 2:
         return []
+    text = " ".join(words)
 
     base_score = _get_sentiment_score(text, finbert_pipe)
 

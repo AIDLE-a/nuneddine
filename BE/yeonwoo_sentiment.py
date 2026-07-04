@@ -32,7 +32,7 @@ def analyze(news: list[NewsItem]) -> SentimentResult:
     sentiment = _run_finbert(news, pipe)
     main_text = news[0].title
     explanation = explain_sentiment(main_text, pipe)
-    sentiment_warning = _check_sentiment_uncertainty(sentiment)
+    sentiment_warning = _check_sentiment_uncertainty(sentiment, news_count=len(news))
 
     return SentimentResult(
         sentiment=sentiment,
@@ -42,8 +42,15 @@ def analyze(news: list[NewsItem]) -> SentimentResult:
 
 
 def _run_finbert(news: list[NewsItem], pipe) -> Sentiment:
-    """TODO(연우): 뉴스 전체에 대해 FinBERT 감성 분석 평균 계산"""
-    texts = [n.title for n in news[:20]]
+    """뉴스 전체에 대해 FinBERT 감성 분석 평균 계산.
+    제목만으로는 신호가 약할 수 있어, 요약문(description)이 있으면 같이 합쳐서 분석한다.
+    (NewsItem에 description 필드가 없는 경우를 대비해 getattr로 안전하게 접근)
+    """
+    texts = []
+    for n in news[:20]:
+        desc = getattr(n, "description", "") or ""
+        combined = f"{n.title}. {desc}".strip() if desc else n.title
+        texts.append(combined)
     results = pipe(texts, truncation=True, max_length=512)
 
     pos_scores, neg_scores = [], []
@@ -59,8 +66,10 @@ def _run_finbert(news: list[NewsItem], pipe) -> Sentiment:
     return Sentiment(positive=round(avg_pos, 3), negative=round(avg_neg, 3))
 
 
-def _check_sentiment_uncertainty(sentiment: Sentiment) -> str | None:
-    """감성 에이전트 스스로의 불확실성 판단 — 신호가 명확한가?"""
+def _check_sentiment_uncertainty(sentiment: Sentiment, news_count: int = 0) -> str | None:
+    """감성 에이전트 스스로의 불확실성 판단 — 신호가 명확하고, 표본도 충분한가?"""
+    if news_count and news_count < 5:
+        return "표본 부족으로 감성 신뢰도 낮음"
     if abs(sentiment.positive - sentiment.negative) < 0.15:
         return "감성 신호 불명확"
     return None
