@@ -1,5 +1,66 @@
+<<<<<<< HEAD
 config.py
 .DS_Store
 news_api_result.csv
 news_filtered_result.csv
 __pycache__/
+=======
+# ==========================================
+# Python / 백엔드
+# ==========================================
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+.env
+.envrc
+
+# 수집 결과물 (재생성 가능)
+BE/YUBIN/news_api_result.csv
+BE/YUBIN/news_filtered_result.csv
+
+# 설정 파일 (민감 정보)
+BE/firebase_config.json
+BE/YUBIN/config.py
+
+# 테스트 / 캐시
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ==========================================
+# Node / 프론트엔드
+# ==========================================
+FE/node_modules/
+FE/dist/
+FE/dist-ssr/
+FE/.env
+FE/.env.local
+FE/.env.*.local
+
+# ==========================================
+# IDE / OS
+# ==========================================
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.sw?
+
+# Claude Code 설정 파일
+.claude/
+>>>>>>> d0ede48b38e907f80806f272101c585966461ed3
