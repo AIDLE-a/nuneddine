@@ -20,7 +20,6 @@ NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
 NAVER_CLIENT_ID = os.getenv("NAVER_CLIENT_ID", "")
 NAVER_CLIENT_SECRET = os.getenv("NAVER_CLIENT_SECRET", "")
 
-# 종목코드 → (영문 검색 키워드, 국문 검색 키워드) 튜플로 매핑
 TICKER_KEYWORD_MAP = {
     "005930.KS": ("Samsung Electronics semiconductor", "삼성전자 반도체"),
     "000660.KS": ("SK Hynix HBM memory", "SK하이닉스 HBM"),
@@ -46,6 +45,7 @@ TICKER_KEYWORD_MAP = {
     "MRNA": ("Moderna mRNA vaccine", "모더나 백신"),
 }
 
+
 def get_stock_data(ticker: str) -> StockDataResult:
     """메인 함수 — 오케스트레이터가 이 함수만 호출함"""
     if USE_MOCK:
@@ -70,66 +70,53 @@ def _fetch_price(ticker: str) -> tuple[float, list[float]]:
                 return recent_7[-1], recent_7
         except Exception as e:
             last_err = e
-        time.sleep(2 ** attempt)  # 1초, 2초, 4초 대기 후 재시도
+        time.sleep(2 ** attempt)
     raise ValueError(f"{ticker} 주가 데이터를 가져올 수 없습니다: {last_err}")
 
 
 def _fetch_news(ticker: str) -> list[NewsItem]:
-    """NewsAPI(영어)와 Naver API(한국어)를 모두 호출하여 병합"""
-    combined_news = []
-    
-    # 키워드 가져오기 (매핑 안 된 종목은 티커명 자체를 검색어로 사용)
+    """
+    NewsAPI(영어)와 Naver API(한국어)를 모두 호출하여 병합.
+
+    정렬 기준 (우선순위 순):
+      1. 언어: 한국어 기사 우선 (lang_priority: 0=한국어, 1=영어)
+      2. 날짜 최신순
+      3. 가중치 점수: 한국어 뉴스 수가 많을수록 한국어 비중 ↑, 적을수록 영어 보완
+    """
     keywords = TICKER_KEYWORD_MAP.get(ticker, (ticker, ticker))
-    keyword_en = keywords[0]
-    keyword_kr = keywords[1]
+    keyword_en, keyword_kr = keywords[0], keywords[1]
+    base_keyword = keyword_en.split()[0].lower()
 
-    # 1. NewsAPI 수집 (영어 기사)
-    if NEWS_API_KEY:
-        from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-        url = "https://newsapi.org/v2/everything"
-        params = {
-            "q": keyword_en,
-            "apiKey": NEWS_API_KEY,
-            "language": "en",
-            "sortBy": "publishedAt",
-            "from": from_date,
-            "pageSize": 50,  # 기존 100개에서 조절
-        }
+    ko_news: list[NewsItem] = []
+    en_news: list[NewsItem] = []
+
+    # ── 날짜 파싱 헬퍼 ───────────────────────────────────────────────────
+    def _parse_dt(item: NewsItem) -> datetime:
         try:
-            response = requests.get(url, params=params, timeout=10)
-            if response.status_code == 200:
-                articles = response.json().get("articles", [])
-                base_keyword = keyword_en.split()[0].lower()
-                for a in articles:
-                    if a.get("title") and base_keyword in a["title"].lower():
-                        combined_news.append(NewsItem(
-                            title=a["title"],
-                            source=a.get("source", {}).get("name", "NewsAPI"),
-                            url=a.get("url", ""),
-                            published_at=a.get("publishedAt", "")
-                        ))
-        except Exception as e:
-            print(f"⚠️ NewsAPI 수집 실패: {e}")
+            s = item.published_at.replace("Z", "+00:00")
+            return datetime.fromisoformat(s)
+        except Exception:
+            return datetime.min
 
-    # 2. Naver API 수집 (한국어 기사)
+    # ── 1. 네이버 뉴스 수집 (한국어) ─────────────────────────────────────
     if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
-        naver_url = "https://openapi.naver.com/v1/search/news.json"
-        headers = {
-            "X-Naver-Client-Id": NAVER_CLIENT_ID,
-            "X-Naver-Client-Secret": NAVER_CLIENT_SECRET
-        }
-        naver_params = {
-            "query": keyword_kr,
-            "display": 50,
-            "sort": "sim"
-        }
         try:
-            res = requests.get(naver_url, headers=headers, params=naver_params, timeout=10)
+            res = requests.get(
+                "https://openapi.naver.com/v1/search/news.json",
+                headers={
+                    "X-Naver-Client-Id": NAVER_CLIENT_ID,
+                    "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
+                },
+                params={"query": keyword_kr, "display": 50, "sort": "date"},
+                timeout=10,
+            )
             if res.status_code == 200:
-                items = res.json().get("items", [])
-                for it in items:
-                    clean_title = it["title"].replace("<b>", "").replace("</b>", "").replace("&quot;", '"').replace("&amp;", "&")
-                    
+                for it in res.json().get("items", []):
+                    clean_title = (
+                        it["title"]
+                        .replace("<b>", "").replace("</b>", "")
+                        .replace("&quot;", '"').replace("&amp;", "&")
+                    )
                     pub_date = it.get("pubDate", "")
                     try:
                         dt = datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S +0900")
@@ -137,23 +124,61 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
                     except Exception:
                         iso_date = pub_date
 
-                    combined_news.append(NewsItem(
+                    ko_news.append(NewsItem(
                         title=clean_title,
                         source="네이버 뉴스",
                         url=it.get("link", ""),
-                        published_at=iso_date
+                        published_at=iso_date,
                     ))
         except Exception as e:
             print(f"⚠️ 네이버 뉴스 수집 실패: {e}")
 
-    # 3. 중복 기사 제거 (제목 기준) 및 반환
-    seen_titles = set()
-    unique_news = []
-    for item in combined_news:
+    # ── 2. NewsAPI 수집 (영어) ────────────────────────────────────────────
+    if NEWS_API_KEY:
+        from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        try:
+            response = requests.get(
+                "https://newsapi.org/v2/everything",
+                params={
+                    "q": keyword_en,
+                    "apiKey": NEWS_API_KEY,
+                    "language": "en",
+                    "sortBy": "publishedAt",
+                    "from": from_date,
+                    "pageSize": 50,
+                },
+                timeout=10,
+            )
+            if response.status_code == 200:
+                for a in response.json().get("articles", []):
+                    if a.get("title") and base_keyword in a["title"].lower():
+                        en_news.append(NewsItem(
+                            title=a["title"],
+                            source=a.get("source", {}).get("name", "NewsAPI"),
+                            url=a.get("url", ""),
+                            published_at=a.get("publishedAt", ""),
+                        ))
+        except Exception as e:
+            print(f"⚠️ NewsAPI 수집 실패: {e}")
+
+    # ── 3. 가중치: 한국어 많으면 영어는 보조로만 ─────────────────────────
+    ko_count = len(ko_news)
+    en_limit = max(10, 30 - ko_count)
+    en_news = en_news[:en_limit]
+
+    # ── 5. 각각 최신순 정렬 후 한국어 먼저 합치기 ────────────────────────
+    ko_news.sort(key=_parse_dt, reverse=True)
+    en_news.sort(key=_parse_dt, reverse=True)
+
+    # ── 6. 중복 제거 후 반환 ──────────────────────────────────────────────
+    seen_titles: set[str] = set()
+    unique_news: list[NewsItem] = []
+    for item in ko_news + en_news:
         if item.title not in seen_titles:
             seen_titles.add(item.title)
             unique_news.append(item)
 
+    print(f"📰 뉴스 수집 완료 — 한국어: {ko_count}개 / 영어: {len(en_news)}개 → 최종: {len(unique_news)}개")
     return unique_news
 
 
