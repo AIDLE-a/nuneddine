@@ -93,7 +93,6 @@ def _parse_date(date_str):
 
 
 def _time_weight(news_item):
-    """최신 뉴스일수록 높은 가중치 (오늘=1.0 / 3일전=0.7 / 7일전=0.4 / 그이상=0.2)"""
     days_old = (datetime.now(timezone.utc) - _parse_date(news_item.published_at)).days
     if days_old <= 1:   return 1.0
     elif days_old <= 3: return 0.7
@@ -102,7 +101,6 @@ def _time_weight(news_item):
 
 
 def _source_weight(news_item):
-    """출처 신뢰도 가중치 (주요 언론사=1.0 / 출처 불명=0.6)"""
     for key in SOURCE_TRUST:
         if key.lower() in news_item.source.lower():
             return SOURCE_TRUST[key]
@@ -110,11 +108,6 @@ def _source_weight(news_item):
 
 
 def _score_one(text, pipe):
-    """
-    감성 점수를 0~1 범위로 반환.
-    중립을 제외하고 긍정/(긍정+부정)으로 정규화.
-    (1=완전 긍정, 0=완전 부정, 0.5=중립)
-    """
     result = pipe(text, truncation=True, max_length=512)[0]
     scores = {item["label"].lower(): item["score"] for item in result}
     pos = scores.get("positive", 0)
@@ -124,10 +117,6 @@ def _score_one(text, pipe):
 
 
 def _explain(text, pipe, top_k=4):
-    """
-    XAI — Leave-one-out 방식으로 단어별 기여도 계산.
-    단어를 하나씩 빼봐서 점수가 얼마나 바뀌는지 측정.
-    """
     words = text.split()
     if len(words) < 2:
         return []
@@ -151,7 +140,6 @@ def analyze(news):
 
     pipe = _get_pipe_for(news[0].title)
 
-    # 기사별 점수 + 가중치 계산
     scored = []
     for n in news[:20]:
         score = _score_one(n.title, pipe)
@@ -184,7 +172,6 @@ def analyze(news):
 
 
 def _calc_weighted_sentiment(scored):
-    """시간 × 출처 신뢰도 결합 가중 평균"""
     wp = sum(s["score"] * s["combined_weight"] for s in scored)
     tw = sum(s["combined_weight"] for s in scored)
     if tw == 0:
@@ -194,7 +181,6 @@ def _calc_weighted_sentiment(scored):
 
 
 def _calc_trend(scored):
-    """① 감성 트렌드 — 최근 3일 vs 4~7일 전 비교"""
     recent = [s for s in scored if s["time_weight"] >= 0.7]
     old    = [s for s in scored if 0.2 <= s["time_weight"] < 0.7]
     if not recent or not old:
@@ -214,7 +200,6 @@ def _calc_trend(scored):
 
 
 def _extract_keywords(explanation):
-    """② 핵심 키워드 — XAI 결과에서 긍정/부정 TOP2 추출"""
     if not explanation:
         return None
     pos = [e["word"] for e in explanation if e["contribution"] > 0.05][:2]
@@ -226,7 +211,6 @@ def _extract_keywords(explanation):
 
 
 def _calc_volatility(scored):
-    """④ 감성 변동성 — 기사별 점수의 표준편차"""
     scores = [s["score"] for s in scored]
     if len(scores) < 2:
         return None
@@ -236,30 +220,20 @@ def _calc_volatility(scored):
 
 
 def _check_uncertainty(news, sentiment, scored):
-    """4가지 불확실성 경고"""
     warnings = []
-
-    # ① 신호 강도
     if abs(sentiment.positive - sentiment.negative) < 0.15:
         warnings.append("감성 신호 불명확")
-
-    # ② 기사 간 불일치
     if len(scored) >= 3:
         pos_count = sum(1 for s in scored if s["score"] > 0.5)
         if 0.35 <= pos_count / len(scored) <= 0.65:
             warnings.append("긍정·부정 기사 혼재 — 시장 의견 불일치")
-
-    # ③ 데이터 양
     if len(news) < 5:
         warnings.append(f"뉴스 부족 ({len(news)}건)")
     elif len(news) < 10:
         warnings.append(f"뉴스 적음 ({len(news)}건) — 추가 확인 권장")
-
-    # ④ 시간
     recent = sum(1 for s in scored if s["time_weight"] >= 0.7)
     if len(scored) > 0 and recent / len(scored) < 0.5:
         warnings.append("최신 뉴스 부족 — 오래된 정보 기반")
-
     return warnings
 
 
@@ -271,6 +245,7 @@ def _get_mock_sentiment():
             WordContribution(word="차세대 양산 계획", contribution=0.31),
             WordContribution(word="반도체 업황 회복", contribution=0.26),
             WordContribution(word="중국 경쟁사 압박", contribution=-0.21),
+            WordContribution(word="삼성전자", contribution=0.06),
         ],
         sentiment_warning=None,
         trend=SentimentTrend(
