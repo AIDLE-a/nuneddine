@@ -74,31 +74,111 @@ def _fetch_price(ticker: str) -> tuple[float, list[float]]:
     raise ValueError(f"{ticker} 주가 데이터를 가져올 수 없습니다: {last_err}")
 
 
+def _parse_dt(item: "NewsItem") -> datetime:
+    try:
+        s = item.published_at.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        # timezone 정보 제거해서 naive로 통일
+        if dt.tzinfo is not None:
+            dt = dt.replace(tzinfo=None)
+        return dt
+    except Exception:
+        return datetime.min
+
+
+def _get_ticker_keywords(ticker: str) -> tuple[str, str]:
+    """TICKER_KEYWORD_MAP에 없으면 yfinance로 회사명 자동 조회"""
+    if ticker in TICKER_KEYWORD_MAP:
+        return TICKER_KEYWORD_MAP[ticker]
+    try:
+        info = yf.Ticker(ticker).info
+        name = info.get("shortName") or info.get("longName") or ticker
+        return name, name
+    except Exception:
+        return ticker, ticker
+
+
+def _fetch_yfinance_news(ticker: str) -> list["NewsItem"]:
+    """yfinance 내장 뉴스 — 티커와 직접 연관된 최신 기사 (무료, 키 불필요)"""
+    try:
+        raw = yf.Ticker(ticker).news or []
+        items = []
+        for n in raw:
+            # yfinance 버전에 따라 구조가 다름 — 둘 다 처리
+            content = n.get("content") or {}
+            title = content.get("title") or n.get("title", "")
+            url   = (content.get("canonicalUrl") or {}).get("url") or n.get("link", "")
+            source = (content.get("provider") or {}).get("displayName") or n.get("publisher", "Yahoo Finance")
+            pub = content.get("pubDate") or n.get("providerPublishTime")
+            if isinstance(pub, int):
+                iso_date = datetime.fromtimestamp(pub).isoformat()
+            elif isinstance(pub, str):
+                iso_date = pub
+            else:
+                iso_date = datetime.now().isoformat()
+            if title:
+                items.append(NewsItem(title=title, source=source, url=url, published_at=iso_date))
+        return items
+    except Exception as e:
+        print(f"⚠️ yfinance 뉴스 수집 실패: {e}")
+        return []
+
+
+def _fetch_google_news(query: str, lang: str = "ko", country: str = "KR") -> list["NewsItem"]:
+    """Google News RSS — 무료, API 키 불필요, 최신 뉴스 50개"""
+    import xml.etree.ElementTree as ET
+    from urllib.parse import quote
+    from email.utils import parsedate_to_datetime
+    try:
+        url = (
+            f"https://news.google.com/rss/search"
+            f"?q={quote(query)}&hl={lang}&gl={country}&ceid={country}:{lang}"
+        )
+        resp = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        if resp.status_code != 200:
+            return []
+        root = ET.fromstring(resp.content)
+        items = []
+        for item in root.findall(".//item")[:50]:
+            title = item.findtext("title", "")
+            link  = item.findtext("link", "")
+            pub   = item.findtext("pubDate", "")
+            src_el = item.find("source")
+            source = src_el.text if src_el is not None else "Google News"
+            try:
+                iso_date = parsedate_to_datetime(pub).isoformat()
+            except Exception:
+                iso_date = datetime.now().isoformat()
+            if title:
+                items.append(NewsItem(title=title, source=source, url=link, published_at=iso_date))
+        return items
+    except Exception as e:
+        print(f"⚠️ Google News RSS 수집 실패: {e}")
+        return []
+
+
 def _fetch_news(ticker: str) -> list[NewsItem]:
     """
-    NewsAPI(영어)와 Naver API(한국어)를 모두 호출하여 병합.
+    4개 소스에서 최신 관련 뉴스를 수집해 합산.
 
-    정렬 기준 (우선순위 순):
-      1. 언어: 한국어 기사 우선 (lang_priority: 0=한국어, 1=영어)
-      2. 날짜 최신순
-      3. 가중치 점수: 한국어 뉴스 수가 많을수록 한국어 비중 ↑, 적을수록 영어 보완
+    우선순위:
+      1. yfinance 내장 뉴스 (티커 직접 연관, 무료)
+      2. 네이버 뉴스 API (한국어, 100개)
+      3. Google News RSS 한국어 (무료, 키 불필요)
+      4. NewsAPI (영어 보완)
     """
-    keywords = TICKER_KEYWORD_MAP.get(ticker, (ticker, ticker))
-    keyword_en, keyword_kr = keywords[0], keywords[1]
-    base_keyword = keyword_en.split()[0].lower()
+    keyword_en, keyword_kr = _get_ticker_keywords(ticker)
+    # NewsAPI 필터: 키워드 단어 중 하나라도 제목에 있으면 통과
+    filter_words = {w.lower() for w in keyword_en.split() if len(w) > 2}
 
     ko_news: list[NewsItem] = []
     en_news: list[NewsItem] = []
 
-    # ── 날짜 파싱 헬퍼 ───────────────────────────────────────────────────
-    def _parse_dt(item: NewsItem) -> datetime:
-        try:
-            s = item.published_at.replace("Z", "+00:00")
-            return datetime.fromisoformat(s)
-        except Exception:
-            return datetime.min
+    # ── 1. yfinance 내장 뉴스 ────────────────────────────────────────────
+    yf_news = _fetch_yfinance_news(ticker)
+    en_news.extend(yf_news)
 
-    # ── 1. 네이버 뉴스 수집 (한국어) ─────────────────────────────────────
+    # ── 2. 네이버 뉴스 (한국어, 최대 100개) ─────────────────────────────
     if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
         try:
             res = requests.get(
@@ -107,7 +187,7 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
                     "X-Naver-Client-Id": NAVER_CLIENT_ID,
                     "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
                 },
-                params={"query": keyword_kr, "display": 50, "sort": "date"},
+                params={"query": keyword_kr, "display": 100, "sort": "date"},
                 timeout=10,
             )
             if res.status_code == 200:
@@ -116,6 +196,7 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
                         it["title"]
                         .replace("<b>", "").replace("</b>", "")
                         .replace("&quot;", '"').replace("&amp;", "&")
+                        .replace("&#39;", "'")
                     )
                     pub_date = it.get("pubDate", "")
                     try:
@@ -123,7 +204,6 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
                         iso_date = dt.isoformat()
                     except Exception:
                         iso_date = pub_date
-
                     ko_news.append(NewsItem(
                         title=clean_title,
                         source="네이버 뉴스",
@@ -133,7 +213,11 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
         except Exception as e:
             print(f"⚠️ 네이버 뉴스 수집 실패: {e}")
 
-    # ── 2. NewsAPI 수집 (영어) ────────────────────────────────────────────
+    # ── 3. Google News RSS (한국어) ───────────────────────────────────────
+    google_ko = _fetch_google_news(keyword_kr, lang="ko", country="KR")
+    ko_news.extend(google_ko)
+
+    # ── 4. NewsAPI (영어 보완) ────────────────────────────────────────────
     if NEWS_API_KEY:
         from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         try:
@@ -145,15 +229,17 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
                     "language": "en",
                     "sortBy": "publishedAt",
                     "from": from_date,
-                    "pageSize": 50,
+                    "pageSize": 100,
                 },
                 timeout=10,
             )
             if response.status_code == 200:
                 for a in response.json().get("articles", []):
-                    if a.get("title") and base_keyword in a["title"].lower():
+                    title = a.get("title", "") or ""
+                    # 제목에 키워드 단어 중 하나라도 있으면 통과 (이전보다 완화)
+                    if title and any(w in title.lower() for w in filter_words):
                         en_news.append(NewsItem(
-                            title=a["title"],
+                            title=title,
                             source=a.get("source", {}).get("name", "NewsAPI"),
                             url=a.get("url", ""),
                             published_at=a.get("publishedAt", ""),
@@ -161,29 +247,30 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
         except Exception as e:
             print(f"⚠️ NewsAPI 수집 실패: {e}")
 
-    # ── 3. 가중치: 한국어 많으면 영어는 보조로만 ─────────────────────────
-    ko_count = len(ko_news)
-    en_limit = max(10, 30 - ko_count)
-    en_news = en_news[:en_limit]
-
-    # ── 5. 각각 최신순 정렬 후 한국어 먼저 합치기 ────────────────────────
+    # ── 각각 최신순 정렬 ─────────────────────────────────────────────────
     ko_news.sort(key=_parse_dt, reverse=True)
     en_news.sort(key=_parse_dt, reverse=True)
 
-    # ── 6. 중복 제거 후 반환 ──────────────────────────────────────────────
-    seen_titles: set[str] = set()
-    unique_news: list[NewsItem] = []
+    # ── 중복 제거 (제목 기준) 후 한국어 우선 합산 ────────────────────────
+    seen: set[str] = set()
+    unique: list[NewsItem] = []
     for item in ko_news + en_news:
-        if item.title not in seen_titles:
-            seen_titles.add(item.title)
-            unique_news.append(item)
+        key = item.title.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(item)
 
-    print(f"📰 뉴스 수집 완료 — 한국어: {ko_count}개 / 영어: {len(en_news)}개 → 최종: {len(unique_news)}개")
-    return unique_news
+    print(
+        f"📰 뉴스 수집 완료 — "
+        f"yfinance: {len(yf_news)}개 / 네이버: {len(ko_news) - len(google_ko)}개 / "
+        f"Google RSS: {len(google_ko)}개 / NewsAPI: {len(en_news) - len(yf_news)}개 → "
+        f"최종: {len(unique)}개"
+    )
+    return unique
 
 
 def _check_info_uncertainty(news: list[NewsItem]) -> str | None:
-    if len(news) < 5:
+    if len(news) < 10:
         return "뉴스 부족"
     return None
 
