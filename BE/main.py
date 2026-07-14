@@ -15,8 +15,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import requests as http_requests
 
 import firebase_admin
-from firebase_admin import credentials, auth as firebase_auth
+from firebase_admin import credentials, auth as firebase_auth, firestore as firebase_firestore
 
+from pydantic import BaseModel
 from schemas import StockAnalysisResponse
 import yubin_data as data_service
 import yeonwoo_sentiment as sentiment_service
@@ -308,6 +309,69 @@ def get_prices(tickers: str):
             pass
         result[ticker] = round(float(price), 2) if price else None
     return result
+
+# ── 활성 사용자 추적 (BLE 송신기용) ──
+_active_uid: str = ""
+
+class ActiveUserBody(BaseModel):
+    uid: str
+
+@app.get("/api/active-user")
+def get_active_user():
+    """현재 앱에 로그인된 사용자의 UID 반환"""
+    return {"uid": _active_uid}
+
+@app.post("/api/active-user")
+def set_active_user(body: ActiveUserBody):
+    """프론트엔드 로그인/로그아웃 시 호출 — 활성 UID 갱신"""
+    global _active_uid
+    _active_uid = body.uid
+    return {"ok": True}
+
+
+@app.get("/api/watchlist")
+def get_watchlist(uid: str):
+    """Firestore에서 사용자 관심종목(favorites) 조회"""
+    try:
+        db = firebase_firestore.client()
+        snap = db.collection("users").document(uid).get()
+        favorites = snap.to_dict().get("favorites", []) if snap.exists else []
+        return {"favorites": favorites}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tamagotchi")
+def get_tamagotchi(ticker: str):
+    """종목 현재가 + 등락률 반환 (BLE 다마고치용)"""
+    import yfinance as yf
+    try:
+        t = yf.Ticker(ticker)
+        fi = t.fast_info
+        price = (
+            getattr(fi, "last_price", None)
+            or getattr(fi, "lastPrice", None)
+            or getattr(fi, "regular_market_price", None)
+        )
+        prev = (
+            getattr(fi, "previous_close", None)
+            or getattr(fi, "previousClose", None)
+            or getattr(fi, "regular_market_previous_close", None)
+        )
+        if not price:
+            hist = t.history(period="2d")
+            if not hist.empty:
+                price = float(hist["Close"].iloc[-1])
+                prev = float(hist["Close"].iloc[-2]) if len(hist) > 1 else price
+        if not price:
+            raise HTTPException(status_code=404, detail="가격 조회 실패")
+        change_pct = ((price - prev) / prev * 100) if prev else 0.0
+        return {"price": round(float(price), 2), "change_pct": round(change_pct, 2)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ── 채민 / 로그인팀 담당 ──
 @app.post("/api/login")
