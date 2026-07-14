@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 def _get_sentiment_score(text, pipe):
     """
     0~1 범위로 반환 (1=완전 긍정, 0=완전 부정).
@@ -36,7 +35,6 @@ def explain_sentiment(text, pipe, top_k=4):
 
     contributions.sort(key=lambda x: abs(x["contribution"]), reverse=True)
     return contributions[:top_k]
-=======
 """
 [XAI 설명 레이어 — 담당: 연우]
 
@@ -115,4 +113,3 @@ if __name__ == "__main__":
     for item in explanation:
         sign = "+" if item["contribution"] > 0 else ""
         print(f"{item['word']}: {sign}{item['contribution']}")
->>>>>>> origin/FE_CHAEMIN
