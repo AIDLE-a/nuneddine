@@ -292,6 +292,7 @@ def get_prices(tickers: str):
     result = {}
     for ticker in [t.strip() for t in tickers.split(",") if t.strip()]:
         price = None
+        prev = None
         try:
             t_obj = yf.Ticker(ticker)
             fi = t_obj.fast_info
@@ -301,13 +302,23 @@ def get_prices(tickers: str):
                 or getattr(fi, "regular_market_price", None)
                 or getattr(fi, "regularMarketPrice", None)
             )
+            prev = (
+                getattr(fi, "previous_close", None)
+                or getattr(fi, "previousClose", None)
+                or getattr(fi, "regular_market_previous_close", None)
+            )
             if not price:
-                hist = t_obj.history(period="1d")
+                hist = t_obj.history(period="2d")
                 if not hist.empty:
                     price = float(hist["Close"].iloc[-1])
+                    prev = float(hist["Close"].iloc[-2]) if len(hist) > 1 else None
         except Exception:
             pass
-        result[ticker] = round(float(price), 2) if price else None
+        if price:
+            change_pct = round((price - prev) / prev * 100, 2) if prev else None
+            result[ticker] = {"price": round(float(price), 2), "change_pct": change_pct}
+        else:
+            result[ticker] = None
     return result
 
 # ── 활성 사용자 추적 (BLE 송신기용) ──

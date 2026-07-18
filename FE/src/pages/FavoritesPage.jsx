@@ -1,6 +1,11 @@
-import React from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MOCK_STOCKS } from '../App.jsx';
+import { fetchPrices } from '../api.js';
+import { getStockCurrency, formatPrice } from '../currencyUtils.js';
+
+const CURRENCIES = ['KRW', 'USD', 'JPY', 'EUR', 'HKD'];
+const CURRENCY_SYMBOLS = { KRW: '₩', USD: '$', JPY: '¥', EUR: '€', HKD: 'HK$' };
 
 function makeStockObj(ticker, name) {
   return MOCK_STOCKS.find(s => s.code === ticker) ?? {
@@ -10,13 +15,121 @@ function makeStockObj(ticker, name) {
   };
 }
 
-function FavoritesPage({ favorites, onRemoveFavorite, onAnalyze }) {
+function PurchaseInput({ ticker, current, onSave, onCancel }) {
+  const currency = getStockCurrency({ code: ticker });
+  const defaultCur = currency === '원' ? 'KRW' : 'USD';
+  const [price, setPrice] = useState(current?.purchasePrice ?? '');
+  const [cur, setCur] = useState(current?.purchaseCurrency ?? defaultCur);
+
+  return (
+    <div className="fav-purchase-input-row">
+      <select className="fav-currency-select" value={cur} onChange={e => setCur(e.target.value)}>
+        {CURRENCIES.map(c => (
+          <option key={c} value={c}>{CURRENCY_SYMBOLS[c]} {c}</option>
+        ))}
+      </select>
+      <input
+        className="fav-price-input"
+        type="number"
+        placeholder="구매 가격 입력"
+        value={price}
+        onChange={e => setPrice(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') onSave(Number(price), cur); if (e.key === 'Escape') onCancel(); }}
+        autoFocus
+      />
+      <button className="fav-save-btn" onClick={() => onSave(Number(price), cur)} disabled={!price}>저장</button>
+      <button className="fav-cancel-btn" onClick={onCancel}>취소</button>
+    </div>
+  );
+}
+
+function FavoriteCard({ f, priceData, onRemove, onUpdatePurchase, onAnalyze }) {
+  const [editing, setEditing] = useState(false);
   const navigate = useNavigate();
 
-  const handleAnalyze = (ticker, name) => {
-    onAnalyze(makeStockObj(ticker, name));
-    navigate('/');
+  const price = priceData?.price;
+  const changePct = priceData?.change_pct;
+  const currency = getStockCurrency({ code: f.ticker });
+  const priceStr = price != null ? formatPrice(price, currency) : '—';
+  const isPos = changePct != null ? changePct >= 0 : null;
+
+  const hasPurchase = f.purchasePrice != null && f.purchasePrice > 0;
+  let gainAmt = null, gainPct = null;
+  if (hasPurchase && price != null) {
+    const sym = CURRENCY_SYMBOLS[f.purchaseCurrency] ?? '';
+    gainAmt = price - f.purchasePrice;
+    gainPct = (gainAmt / f.purchasePrice) * 100;
+  }
+
+  const handleSave = async (purchasePrice, purchaseCurrency) => {
+    await onUpdatePurchase(f.ticker, purchasePrice || null, purchaseCurrency);
+    setEditing(false);
   };
+
+  return (
+    <div className="favorite-card">
+      <div className="favorite-card-header">
+        <div>
+          <p className="favorite-ticker">{f.ticker}</p>
+          <h3 className="favorite-name">{f.name}</h3>
+        </div>
+        <button className="btn-icon btn-danger" onClick={() => onRemove(f.ticker)} title="관심 종목 해제">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      {/* 현재가 / 등락률 */}
+      <div className="fav-price-row">
+        <span className="fav-current-price">{priceStr}</span>
+        {changePct != null && (
+          <span className={`fav-change-badge ${isPos ? 'positive' : 'negative'}`}>
+            {isPos ? '+' : ''}{changePct.toFixed(2)}%
+          </span>
+        )}
+      </div>
+
+      {/* 구매 비용 대비 손익 */}
+      {hasPurchase && gainAmt != null && (
+        <div className="fav-gain-row">
+          <span className="fav-gain-label">매수가 {CURRENCY_SYMBOLS[f.purchaseCurrency]}{f.purchasePrice.toLocaleString()}</span>
+          <span className={`fav-gain-value ${gainAmt >= 0 ? 'positive' : 'negative'}`}>
+            {gainAmt >= 0 ? '+' : ''}{formatPrice(Math.abs(gainAmt), currency)}
+            {' '}({gainPct >= 0 ? '+' : ''}{gainPct.toFixed(2)}%)
+          </span>
+        </div>
+      )}
+
+      {/* 구매가 입력 */}
+      {editing ? (
+        <PurchaseInput ticker={f.ticker} current={f} onSave={handleSave} onCancel={() => setEditing(false)} />
+      ) : (
+        <div className="fav-card-actions">
+          <button className="fav-purchase-btn" onClick={() => setEditing(true)}>
+            {hasPurchase ? '✏️ 매수가 수정' : '+ 매수가 입력'}
+          </button>
+          <button className="btn-analyze-card" onClick={() => { onAnalyze(makeStockObj(f.ticker, f.name)); navigate('/'); }}>
+            분석 시작 →
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FavoritesPage({ favorites, user, onRemoveFavorite, onUpdatePurchase, onAnalyze }) {
+  const navigate = useNavigate();
+  const [tab, setTab] = useState('all'); // 'all' | 'purchased'
+  const [prices, setPrices] = useState({});
+
+  useEffect(() => {
+    if (favorites.length === 0) return;
+    fetchPrices(favorites.map(f => f.ticker))
+      .then(data => setPrices(data))
+      .catch(() => {});
+  }, [favorites]);
+
+  const purchased = favorites.filter(f => f.purchasePrice != null && f.purchasePrice > 0);
+  const displayed = tab === 'all' ? favorites : purchased;
 
   return (
     <div className="page-content">
@@ -34,31 +147,37 @@ function FavoritesPage({ favorites, onRemoveFavorite, onAnalyze }) {
           <button className="btn-primary" onClick={() => navigate('/')}>종목 분석하러 가기</button>
         </div>
       ) : (
-        <div className="favorites-grid">
-          {favorites.map(f => (
-            <div key={f.ticker} className="favorite-card">
-              <div className="favorite-card-header">
-                <div>
-                  <p className="favorite-ticker">{f.ticker}</p>
-                  <h3 className="favorite-name">{f.name}</h3>
-                </div>
-                <button
-                  className="btn-icon btn-danger"
-                  onClick={() => onRemoveFavorite(f.ticker)}
-                  title="관심 종목 해제"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-              </div>
-              <button
-                className="btn-analyze-card"
-                onClick={() => handleAnalyze(f.ticker, f.name)}
-              >
-                분석 시작 →
-              </button>
+        <>
+          {/* 탭 토글 */}
+          <div className="fav-tab-row">
+            <button className={`fav-tab${tab === 'all' ? ' active' : ''}`} onClick={() => setTab('all')}>
+              전체 관심 종목 <span className="fav-tab-count">{favorites.length}</span>
+            </button>
+            <button className={`fav-tab${tab === 'purchased' ? ' active' : ''}`} onClick={() => setTab('purchased')}>
+              내가 구매한 종목 <span className="fav-tab-count">{purchased.length}</span>
+            </button>
+          </div>
+
+          {displayed.length === 0 ? (
+            <div className="empty-state" style={{ marginTop: 32 }}>
+              <p className="empty-state-text">매수가를 입력한 종목이 없습니다</p>
+              <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 6 }}>종목 카드의 '+ 매수가 입력'을 눌러 등록하세요</p>
             </div>
-          ))}
-        </div>
+          ) : (
+            <div className="favorites-grid">
+              {displayed.map(f => (
+                <FavoriteCard
+                  key={f.ticker}
+                  f={f}
+                  priceData={prices[f.ticker]}
+                  onRemove={onRemoveFavorite}
+                  onUpdatePurchase={onUpdatePurchase}
+                  onAnalyze={onAnalyze}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

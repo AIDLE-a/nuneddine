@@ -517,9 +517,45 @@ body {
 .ranking-count-badge { display: flex; align-items: baseline; gap: 2px; background: var(--accent-bg); border: 1.5px solid rgba(13,148,136,0.18); border-radius: 12px; padding: 6px 14px; }
 .ranking-count-num { font-size: 22px; font-weight: 900; color: var(--accent); line-height: 1; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
 .ranking-count-label { font-size: 11px; font-weight: 700; color: var(--accent); opacity: 0.65; }
+.ranking-price-group { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .ranking-price { font-size: 14px; font-weight: 700; color: var(--text-secondary); flex-shrink: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.ranking-change { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ranking-change.positive { color: var(--positive); }
+.ranking-change.negative { color: var(--negative); }
 .ranking-analyze-btn { padding: 9px 18px; background: var(--gradient); color: #fff; border: none; border-radius: 50px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; font-family: inherit; box-shadow: 0 4px 14px rgba(13,148,136,0.30); transition: opacity 0.14s, transform 0.15s var(--ease); }
 .ranking-analyze-btn:hover { opacity: 0.88; transform: translateY(-1px); }
+
+/* ── 관심 종목 페이지 ── */
+.fav-tab-row { display: flex; gap: 8px; margin-bottom: 20px; }
+.fav-tab { padding: 9px 18px; border-radius: 50px; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; display: flex; align-items: center; gap: 6px; transition: all 0.15s var(--ease); }
+.fav-tab.active { background: var(--gradient); color: #fff; border-color: transparent; box-shadow: 0 4px 14px rgba(13,148,136,0.25); }
+.fav-tab:not(.active):hover { border-color: var(--accent); color: var(--accent); }
+.fav-tab-count { font-size: 11px; font-weight: 800; opacity: 0.8; }
+
+.fav-price-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 6px; }
+.fav-current-price { font-size: 18px; font-weight: 800; color: var(--text-primary); letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.fav-change-badge { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 20px; font-variant-numeric: tabular-nums; }
+.fav-change-badge.positive { background: var(--positive-light); color: var(--positive); }
+.fav-change-badge.negative { background: var(--negative-light); color: var(--negative); }
+
+.fav-gain-row { display: flex; align-items: center; justify-content: space-between; background: var(--surface-2); border-radius: 8px; padding: 7px 10px; margin-bottom: 10px; }
+.fav-gain-label { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+.fav-gain-value { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.fav-gain-value.positive { color: var(--positive); }
+.fav-gain-value.negative { color: var(--negative); }
+
+.fav-card-actions { display: flex; gap: 8px; margin-top: 10px; }
+.fav-purchase-btn { flex: 1; padding: 8px; background: var(--surface-2); color: var(--text-secondary); border: 1.5px solid var(--border); border-radius: 10px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; transition: all 0.15s var(--ease); }
+.fav-purchase-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+.fav-purchase-input-row { display: flex; gap: 6px; margin-top: 10px; align-items: center; }
+.fav-currency-select { padding: 7px 6px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-primary); font-size: 12px; font-family: inherit; cursor: pointer; outline: none; flex-shrink: 0; }
+.fav-currency-select:focus { border-color: var(--accent); }
+.fav-price-input { flex: 1; padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-primary); font-size: 13px; font-family: inherit; outline: none; min-width: 0; font-variant-numeric: tabular-nums; }
+.fav-price-input:focus { border-color: var(--accent); }
+.fav-save-btn { padding: 7px 12px; background: var(--gradient); color: #fff; border: none; border-radius: 8px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; flex-shrink: 0; }
+.fav-save-btn:disabled { opacity: 0.4; cursor: default; }
+.fav-cancel-btn { padding: 7px 10px; background: none; color: var(--text-muted); border: 1.5px solid var(--border); border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; flex-shrink: 0; }
 
 /* ── Images / Lightbox ── */
 .post-image-section { margin: 10px 0; }
