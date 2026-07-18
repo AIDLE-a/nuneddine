@@ -39,11 +39,22 @@ class WordContribution(BaseModel):
     contribution: float  # 양수=긍정 기여, 음수=부정 기여
 
 
+class SentimentTrend(BaseModel):
+    """감성 트렌드 — 최근 vs 과거 기사 비교"""
+    direction: str
+    recent_score: float
+    old_score: float
+    change: float
+
+
 class SentimentResult(BaseModel):
     """연우가 만드는 결과물 — 감성 불확실성을 스스로 판단해서 같이 반환"""
     sentiment: Sentiment
     explanation: List[WordContribution] = []
     sentiment_warning: Optional[str] = None  # 예: "감성 신호 불명확"
+    trend: Optional[SentimentTrend] = None
+    top_keywords: Optional[str] = None
+    volatility: Optional[float] = None
 
 
 # ── 희선 담당: 예측 에이전트 결과 형식 ──
