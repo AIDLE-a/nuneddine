@@ -227,7 +227,7 @@ function AppInner() {
           <Route path="/" element={
             <AnalysisPage
               selectedStock={selectedStock}
-              analysis={analysis}
+              analysis={analysis} // ★ 백엔드가 전달한 volume_history & volume_analysis를 포함해 AnalysisPage로 무사히 전달됩니다.
               isLoading={isLoading}
               loadingMsg={loadingMsg}
               isFavorite={isFavorite}

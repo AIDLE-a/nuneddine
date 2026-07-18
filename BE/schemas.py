@@ -1,30 +1,53 @@
 """
-팀 전체가 합의한 JSON 계약
+팀 전체가 합의한 JSON 계약 (거래량 반영 버전)
 이 파일은 희선이 관리하고, 다른 팀원은 이 형식에 맞춰 데이터를 반환해야 함.
 형식이 바뀌면 반드시 팀 전체에 공유 후 수정.
 
-✅ 핵심 변경: 각 에이전트가 "자기 불확실성"을 스스로 계산해서 같이 반환함.
-   Critic 에이전트가 이걸 모아서 최종 경고 + 신뢰도 점수를 산출함.
+[변경 이력]
+- Prediction: 7일 단일 예측 → 1일 단위(day 1~7) 세분화로 변경
+  - day: int, confidence_score: int 필드 추가
+- PredictionResult.prediction: Prediction → List[Prediction]
+- StockAnalysisResponse.prediction: Prediction → List[Prediction]
+  (채민 프론트엔드 영향 있음 — 공유 필요)
+- SentimentResult: FE_CHAEMIN 병합 — trend/top_keywords/volatility 필드 추가
+  - SentimentTrend 클래스 신설 (최근 vs 이전 기간 감성 추세 비교)
+- [★추가] 거래량 시각화 및 리포트를 위한 Volume 필드 추가 (유빈/희선/채민 영향)
+  - StockDataResult & StockAnalysisResponse: volume_history 추가
+  - PredictionResult & StockAnalysisResponse: volume_analysis 추가
 """
 from pydantic import BaseModel
 from typing import List, Optional
 
 
-# ── 유빈 담당: 뉴스 에이전트 결과 형식 ──
+class InvestorData(BaseModel):
+    """날짜별 기관/외국인/개인 순매매 데이터"""
+    date: str
+    institution: float = 0.0   # 기관 순매매 (양수=순매수, 음수=순매도)
+    foreign: float = 0.0       # 외국인 순매매
+    individual: float = 0.0    # 개인 순매매
+
+
+# ── 유빈 담당: 뉴스 및 기초 데이터 에이전트 결과 형식 ──
 class NewsItem(BaseModel):
     title: str
     source: str
     url: str
     published_at: str
+    description: Optional[str] = None  # 뉴스 요약 (감성 분석 정확도 향상용)
 
 
 class StockDataResult(BaseModel):
     """유빈이 만드는 결과물 — 정보 불확실성을 스스로 판단해서 같이 반환"""
     ticker: str
     price: float
-    price_history: List[float] = []  # 최근 7거래일 종가 (차트용)
+    price_history: List[float] = []
+    volume_history: List[float] = []  # 과거 거래량 내역
+    institution_history: List[float] = []
+    foreign_history: List[float] = []
+    individual_history: List[float] = []
+    investor_data: List[InvestorData] = []  # 날짜별 상세 수급 데이터 (전체 기간)
     news: List[NewsItem]
-    info_warning: Optional[str] = None  # 예: "뉴스 부족"
+    info_warning: Optional[str] = None
 
 
 # ── 연우 담당: 감성 에이전트 결과 형식 ──
@@ -36,11 +59,11 @@ class Sentiment(BaseModel):
 class WordContribution(BaseModel):
     """XAI 설명 — 단어별 감성 기여도"""
     word: str
-    contribution: float  # 양수=긍정 기여, 음수=부정 기여
+    contribution: float
 
 
 class SentimentTrend(BaseModel):
-    """감성 트렌드 — 최근 vs 과거 기사 비교"""
+    """감성 추세 — 최근 기사 vs 이전 기사 비교"""
     direction: str
     recent_score: float
     old_score: float
@@ -51,7 +74,7 @@ class SentimentResult(BaseModel):
     """연우가 만드는 결과물 — 감성 불확실성을 스스로 판단해서 같이 반환"""
     sentiment: Sentiment
     explanation: List[WordContribution] = []
-    sentiment_warning: Optional[str] = None  # 예: "감성 신호 불명확"
+    sentiment_warning: Optional[str] = None
     trend: Optional[SentimentTrend] = None
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
@@ -59,29 +82,42 @@ class SentimentResult(BaseModel):
 
 # ── 희선 담당: 예측 에이전트 결과 형식 ──
 class Prediction(BaseModel):
+    """1일 단위 예측 (day=1 ~ day=forecast_days)"""
+    day: int
     future_price: float
     lower: float
     upper: float
+    confidence_score: Optional[int] = None  # 0~100, 일자별 예측 신뢰도
 
 
 class PredictionResult(BaseModel):
     """희선이 만드는 결과물 — 예측 불확실성을 스스로 판단해서 같이 반환"""
-    prediction: Prediction
-    prediction_warning: Optional[str] = None  # 예: "변동성 높음"
+    prediction: List[Prediction]  # day 1~7 리스트
+    prediction_warning: Optional[str] = None
+    volume_analysis: Optional[str] = None  # [★추가] "최근 거래량이 25% 급증하여 신뢰도가 높습니다" 등의 텍스트 분석 결과
 
 
-# ── 희선 담당: 최종 통합 응답 (채민이 받는 최종 형식, 변경 없음) ──
+# ── 최종 통합 응답 (채민이 받는 형식) ──
 class StockAnalysisResponse(BaseModel):
     """
     Critic 에이전트가 3개 에이전트 결과 + 자체 모순 검증을 합쳐서 만드는 최종 응답.
-    채민은 이 형식만 보고 프론트엔드를 만들면 됨. (이 부분은 안 바뀜)
+    채민은 이 형식만 보고 프론트엔드를 만들면 됨.
     """
     ticker: str
     price: float
-    price_history: List[float] = []  # 최근 7일 실제 종가 (차트용, 유빈 추가)
+    price_history: List[float] = []
+    volume_history: List[float] = []
+    institution_history: List[float] = []
+    foreign_history: List[float] = []
+    individual_history: List[float] = []
+    investor_data: List[InvestorData] = []  # 날짜별 상세 수급 (상세 모달용)
     news: List[NewsItem]
-    prediction: Prediction
+    prediction: List[Prediction]  # 변경: 단건 -> 1일 단위 리스트
     sentiment: Sentiment
     warnings: List[str]
     confidence_score: int
     explanation: List[WordContribution] = []
+    trend: Optional[SentimentTrend] = None
+    top_keywords: Optional[str] = None
+    volatility: Optional[float] = None
+    volume_analysis: Optional[str] = None  # [★추가] 리포트에 들어갈 거래량 분석 요약 문구

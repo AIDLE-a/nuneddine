@@ -47,15 +47,19 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
     const { price, prediction, sentiment, news } = analysis;
     const currency = getStockCurrency(stock, analysis);
     const formattedPrice = formatPrice(price, currency);
-    const formattedPredict = formatPrice(prediction.future_price, currency);
-    const formattedLower = formatPrice(prediction.lower, currency);
-    const formattedUpper = formatPrice(prediction.upper, currency);
+
+    // prediction은 이제 1일~7일 단위 배열 — 7일 후(마지막 날) 값을 대표로 사용
+    const finalDayPrediction = prediction?.length ? prediction[prediction.length - 1] : null;
+    const formattedPredict = finalDayPrediction ? formatPrice(finalDayPrediction.future_price, currency) : '-';
+    const formattedLower = finalDayPrediction ? formatPrice(finalDayPrediction.lower, currency) : '-';
+    const formattedUpper = finalDayPrediction ? formatPrice(finalDayPrediction.upper, currency) : '-';
+
     const posStr = Math.round(sentiment.positive * 100);
     const negStr = Math.round(sentiment.negative * 100);
     const sentimentLabel = posStr > 60 ? '긍정 압도' : posStr > negStr + 15 ? '긍정 우세' : negStr > posStr + 15 ? '부정 우세' : '중립 혼재';
     const newsCountStr = `${news.length}건`;
     const newsStatus = news.length >= 10 ? '충분' : news.length >= 5 ? '적정' : '권장치 미달';
-
+    
     return (
       <div className="summary-grid">
         <div className="card summary-card summary-card-main">
