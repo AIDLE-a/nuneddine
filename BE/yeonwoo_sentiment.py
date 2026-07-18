@@ -1,6 +1,5 @@
 import os
 import math
-from dataclasses import dataclass, field
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 
@@ -10,42 +9,9 @@ try:
 except ImportError:
     HAS_LANGDETECT = False
 
+from schemas import Sentiment, WordContribution, SentimentResult, SentimentTrend
+
 USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
-
-
-@dataclass
-class Sentiment:
-    positive: float
-    negative: float
-
-@dataclass
-class WordContribution:
-    word: str
-    contribution: float
-
-@dataclass
-class SentimentTrend:
-    direction: str
-    recent_score: float
-    old_score: float
-    change: float
-
-@dataclass
-class NewsItem:
-    title: str
-    source: str
-    url: str
-    published_at: str
-
-@dataclass
-class SentimentResult:
-    sentiment: Sentiment
-    explanation: List[WordContribution] = field(default_factory=list)
-    sentiment_warning: Optional[str] = None
-    trend: Optional[SentimentTrend] = None
-    top_keywords: Optional[str] = None
-    volatility: Optional[float] = None
-
 
 SOURCE_TRUST = {
     "한국경제": 1.0, "매경": 1.0, "조선비즈": 1.0, "연합뉴스": 1.0,
@@ -194,7 +160,7 @@ def _calc_weighted_sentiment(scored):
 
 
 def _calc_trend(scored):
-    """① 감성 트렌드 — 최근 3일 vs 4~7일 전 비교"""
+    """감성 트렌드 — 최근 3일 vs 4~7일 전 비교"""
     recent = [s for s in scored if s["time_weight"] >= 0.7]
     old    = [s for s in scored if 0.2 <= s["time_weight"] < 0.7]
     if not recent or not old:
@@ -214,7 +180,7 @@ def _calc_trend(scored):
 
 
 def _extract_keywords(explanation):
-    """② 핵심 키워드 — XAI 결과에서 긍정/부정 TOP2 추출"""
+    """핵심 키워드 — XAI 결과에서 긍정/부정 TOP2 추출"""
     if not explanation:
         return None
     pos = [e["word"] for e in explanation if e["contribution"] > 0.05][:2]
@@ -226,7 +192,7 @@ def _extract_keywords(explanation):
 
 
 def _calc_volatility(scored):
-    """④ 감성 변동성 — 기사별 점수의 표준편차"""
+    """감성 변동성 — 기사별 점수의 표준편차"""
     scores = [s["score"] for s in scored]
     if len(scores) < 2:
         return None
@@ -264,9 +230,8 @@ def _check_uncertainty(news, sentiment, scored):
 
 
 def _get_mock_sentiment():
-    s = Sentiment(positive=0.65, negative=0.35)
     return SentimentResult(
-        sentiment=s,
+        sentiment=Sentiment(positive=0.65, negative=0.35),
         explanation=[
             WordContribution(word="차세대 양산 계획", contribution=0.31),
             WordContribution(word="반도체 업황 회복", contribution=0.26),
