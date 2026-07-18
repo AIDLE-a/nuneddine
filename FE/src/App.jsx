@@ -257,10 +257,10 @@ function AppInner() {
                 await removeFavorite(user.uid, ticker);
                 setFavorites(prev => prev.filter(f => f.ticker !== ticker));
               }}
-              onUpdatePurchase={async (ticker, purchasePrice, purchaseCurrency) => {
-                await updateFavoritePurchase(user.uid, ticker, purchasePrice, purchaseCurrency);
+              onUpdatePurchase={async (ticker, purchasePrice, purchaseCurrency, purchaseQuantity) => {
+                await updateFavoritePurchase(user.uid, ticker, purchasePrice, purchaseCurrency, purchaseQuantity);
                 setFavorites(prev => prev.map(f =>
-                  f.ticker === ticker ? { ...f, purchasePrice, purchaseCurrency } : f
+                  f.ticker === ticker ? { ...f, purchasePrice, purchaseCurrency, purchaseQuantity } : f
                 ));
               }}
               onAnalyze={handleAnalyze}

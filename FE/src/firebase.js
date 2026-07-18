@@ -275,14 +275,14 @@ export async function removeFavorite(uid, ticker) {
   await updateDoc(ref, { favorites: updated });
 }
 
-export async function updateFavoritePurchase(uid, ticker, purchasePrice, purchaseCurrency) {
+export async function updateFavoritePurchase(uid, ticker, purchasePrice, purchaseCurrency, purchaseQuantity) {
   const ref = doc(db, "users", uid);
   const snap = await getDoc(ref);
   if (!snap.exists()) return;
   const current = snap.data().favorites ?? [];
   const updated = current.map(f =>
     f.ticker === ticker
-      ? { ...f, purchasePrice: purchasePrice ?? null, purchaseCurrency: purchaseCurrency ?? null }
+      ? { ...f, purchasePrice: purchasePrice ?? null, purchaseCurrency: purchaseCurrency ?? null, purchaseQuantity: purchaseQuantity ?? null }
       : f
   );
   await updateDoc(ref, { favorites: updated });
