@@ -51,10 +51,22 @@ def get_stock_data(ticker: str) -> StockDataResult:
     if USE_MOCK:
         return _get_mock_data(ticker)
 
-    price, price_history = _fetch_price(ticker)
+    price, price_history, volume_history = _fetch_price(ticker)
     news = _fetch_news(ticker)
+    institution_history, foreign_history, individual_history, investor_data = _fetch_investor_data(ticker)
     info_warning = _check_info_uncertainty(news)
-    return StockDataResult(ticker=ticker, price=price, price_history=price_history, news=news, info_warning=info_warning)
+    return StockDataResult(
+        ticker=ticker,
+        price=price,
+        price_history=price_history,
+        volume_history=volume_history,
+        institution_history=institution_history,
+        foreign_history=foreign_history,
+        individual_history=individual_history,
+        investor_data=investor_data,
+        news=news,
+        info_warning=info_warning,
+    )
 
 
 def _fetch_price(ticker: str) -> tuple[float, list[float]]:
@@ -63,11 +75,11 @@ def _fetch_price(ticker: str) -> tuple[float, list[float]]:
     for attempt in range(3):
         try:
             stock = yf.Ticker(ticker)
-            hist = stock.history(period="10d")
+            hist = stock.history(period="1y")
             if not hist.empty:
                 closes = [round(float(v), 2) for v in hist["Close"].tolist()]
-                recent_7 = closes[-7:]
-                return recent_7[-1], recent_7
+                volumes = [float(v) for v in hist["Volume"].tolist()]
+                return closes[-1], closes, volumes
         except Exception as e:
             last_err = e
         time.sleep(2 ** attempt)
@@ -268,6 +280,71 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
     )
     return unique
 
+
+
+def _fetch_investor_data(ticker: str, pages: int = 10):
+    """
+    네이버 금융에서 기관/외국인/개인 순매매 데이터 수집.
+    pages: 가져올 페이지 수 (1페이지 = 약 10일치, 10페이지 = 약 100일치)
+    반환: (기관_리스트, 외국인_리스트, 개인_리스트, investor_data_리스트)
+    """
+    try:
+        if ".KS" not in ticker and ".KQ" not in ticker:
+            return [], [], [], []
+
+        code = ticker.replace(".KS", "").replace(".KQ", "")
+        url = "https://finance.naver.com/item/frgn.naver"
+        headers = {"User-Agent": "Mozilla/5.0"}
+
+        import requests
+        from io import StringIO
+        import pandas as pd
+        from schemas import InvestorData
+
+        all_data = []
+        for page in range(1, pages + 1):
+            try:
+                res = requests.get(url, headers=headers,
+                                   params={"code": code, "page": page}, timeout=10)
+                tables = pd.read_html(StringIO(res.text))
+                df = tables[3]
+                df.columns = ['날짜', '종가', '전일비', '등락률', '거래량',
+                              '기관_순매매', '외국인_순매매', '외국인_보유주수', '외국인_보유율']
+                df = df.dropna(subset=['날짜'])
+                df = df[df['날짜'] != '날짜']
+                if df.empty:
+                    break
+                all_data.append(df)
+            except Exception:
+                break
+
+        if not all_data:
+            return [], [], [], []
+
+        full_df = pd.concat(all_data).reset_index(drop=True)
+
+        institution = [float(v) if v == v else 0.0 for v in full_df['기관_순매매'].tolist()]
+        foreign = [float(v) if v == v else 0.0 for v in full_df['외국인_순매매'].tolist()]
+        individual = [-(i + f) for i, f in zip(institution, foreign)]
+
+        # 날짜별 상세 데이터
+        investor_data = [
+            InvestorData(
+                date=str(row['날짜']),
+                institution=float(row['기관_순매매']) if row['기관_순매매'] == row['기관_순매매'] else 0.0,
+                foreign=float(row['외국인_순매매']) if row['외국인_순매매'] == row['외국인_순매매'] else 0.0,
+                individual=-(float(row['기관_순매매'] if row['기관_순매매'] == row['기관_순매매'] else 0) +
+                              float(row['외국인_순매매'] if row['외국인_순매매'] == row['외국인_순매매'] else 0)),
+            )
+            for _, row in full_df.iterrows()
+        ]
+
+        print(f"📊 수급 데이터 수집 완료: {len(investor_data)}일치")
+        return institution, foreign, individual, investor_data
+
+    except Exception as e:
+        print(f"⚠️ 수급 데이터 수집 실패: {e}")
+        return [], [], [], []
 
 def _check_info_uncertainty(news: list[NewsItem]) -> str | None:
     if len(news) < 10:

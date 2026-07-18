@@ -1,5 +1,5 @@
 """
-팀 전체가 합의한 JSON 계약
+팀 전체가 합의한 JSON 계약 (거래량 반영 버전)
 이 파일은 희선이 관리하고, 다른 팀원은 이 형식에 맞춰 데이터를 반환해야 함.
 형식이 바뀌면 반드시 팀 전체에 공유 후 수정.
 
@@ -9,12 +9,25 @@
 - PredictionResult.prediction: Prediction → List[Prediction]
 - StockAnalysisResponse.prediction: Prediction → List[Prediction]
   (채민 프론트엔드 영향 있음 — 공유 필요)
+- SentimentResult: FE_CHAEMIN 병합 — trend/top_keywords/volatility 필드 추가
+  - SentimentTrend 클래스 신설 (최근 vs 이전 기간 감성 추세 비교)
+- [★추가] 거래량 시각화 및 리포트를 위한 Volume 필드 추가 (유빈/희선/채민 영향)
+  - StockDataResult & StockAnalysisResponse: volume_history 추가
+  - PredictionResult & StockAnalysisResponse: volume_analysis 추가
 """
 from pydantic import BaseModel
 from typing import List, Optional
 
 
-# ── 유빈 담당: 뉴스 에이전트 결과 형식 ──
+class InvestorData(BaseModel):
+    """날짜별 기관/외국인/개인 순매매 데이터"""
+    date: str
+    institution: float = 0.0   # 기관 순매매 (양수=순매수, 음수=순매도)
+    foreign: float = 0.0       # 외국인 순매매
+    individual: float = 0.0    # 개인 순매매
+
+
+# ── 유빈 담당: 뉴스 및 기초 데이터 에이전트 결과 형식 ──
 class NewsItem(BaseModel):
     title: str
     source: str
@@ -28,6 +41,11 @@ class StockDataResult(BaseModel):
     ticker: str
     price: float
     price_history: List[float] = []
+    volume_history: List[float] = []  # 과거 거래량 내역
+    institution_history: List[float] = []
+    foreign_history: List[float] = []
+    individual_history: List[float] = []
+    investor_data: List[InvestorData] = []  # 날짜별 상세 수급 데이터 (전체 기간)
     news: List[NewsItem]
     info_warning: Optional[str] = None
 
@@ -44,11 +62,22 @@ class WordContribution(BaseModel):
     contribution: float
 
 
+class SentimentTrend(BaseModel):
+    """감성 추세 — 최근 기사 vs 이전 기사 비교"""
+    direction: str
+    recent_score: float
+    old_score: float
+    change: float
+
+
 class SentimentResult(BaseModel):
     """연우가 만드는 결과물 — 감성 불확실성을 스스로 판단해서 같이 반환"""
     sentiment: Sentiment
     explanation: List[WordContribution] = []
     sentiment_warning: Optional[str] = None
+    trend: Optional[SentimentTrend] = None
+    top_keywords: Optional[str] = None
+    volatility: Optional[float] = None
 
 
 # ── 희선 담당: 예측 에이전트 결과 형식 ──
@@ -65,6 +94,7 @@ class PredictionResult(BaseModel):
     """희선이 만드는 결과물 — 예측 불확실성을 스스로 판단해서 같이 반환"""
     prediction: List[Prediction]  # day 1~7 리스트
     prediction_warning: Optional[str] = None
+    volume_analysis: Optional[str] = None  # [★추가] "최근 거래량이 25% 급증하여 신뢰도가 높습니다" 등의 텍스트 분석 결과
 
 
 # ── 최종 통합 응답 (채민이 받는 형식) ──
@@ -76,9 +106,18 @@ class StockAnalysisResponse(BaseModel):
     ticker: str
     price: float
     price_history: List[float] = []
+    volume_history: List[float] = []
+    institution_history: List[float] = []
+    foreign_history: List[float] = []
+    individual_history: List[float] = []
+    investor_data: List[InvestorData] = []  # 날짜별 상세 수급 (상세 모달용)
     news: List[NewsItem]
     prediction: List[Prediction]  # 변경: 단건 -> 1일 단위 리스트
     sentiment: Sentiment
     warnings: List[str]
     confidence_score: int
     explanation: List[WordContribution] = []
+    trend: Optional[SentimentTrend] = None
+    top_keywords: Optional[str] = None
+    volatility: Optional[float] = None
+    volume_analysis: Optional[str] = None  # [★추가] 리포트에 들어갈 거래량 분석 요약 문구

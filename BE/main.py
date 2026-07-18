@@ -10,13 +10,17 @@ from dotenv import load_dotenv
 from pathlib import Path
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
+import math
+
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 import requests as http_requests
 
 import firebase_admin
-from firebase_admin import credentials, auth as firebase_auth
+from firebase_admin import credentials, auth as firebase_auth, firestore as firebase_firestore
 
+from pydantic import BaseModel
+# ★ 팀 합의 스키마 파일에서 필요한 클래스들을 정확하게 로드합니다.
 from schemas import StockAnalysisResponse
 import yubin_data as data_service
 import yeonwoo_sentiment as sentiment_service
@@ -25,13 +29,30 @@ import critic
 
 app = FastAPI(title="주식 리서치 통합 서버")
 
+# 🛠️ CORS 에러 해결을 위해 allow_origins 설정을 프론트엔드 주소로 명시적으로 변경했습니다.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173"],  # Vite 프론트엔드 서버 주소 허용
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _find_bad_floats(obj, path="root"):
+    """응답 데이터에서 NaN/Infinity 값을 찾아 경로를 출력하는 디버깅용 함수"""
+    bad = []
+    if isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            bad.append((path, obj))
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            bad.extend(_find_bad_floats(v, f"{path}.{k}"))
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            bad.extend(_find_bad_floats(v, f"{path}[{i}]"))
+    return bad
+
 
 # Firebase Admin SDK 초기화 (firebase_config.json 파일이 BE/ 폴더에 있어야 함)
 try:
@@ -122,9 +143,7 @@ _KR_NAME_MAP = {
     "051910.KS": "LG화학",
     "207940.KS": "삼성바이오로직스",
     "068270.KS": "셀트리온",
-    "035900.KS": "JYP엔터테인먼트",
     "035900.KQ": "JYP엔터테인먼트",
-    "041510.KS": "SM엔터테인먼트",
     "041510.KQ": "SM엔터테인먼트",
     "352820.KS": "HYBE",
     "047040.KS": "YG엔터테인먼트",
@@ -161,7 +180,6 @@ def related_stocks(ticker: str):
             return sym, {"ticker": sym, "name": _KR_NAME_MAP.get(sym, sym), "sector": "기타"}
 
     try:
-        # 현재 종목의 섹터 먼저 파악
         try:
             base_info = _yf.Ticker(ticker).info
             base_sector_en = base_info.get("sector") or base_info.get("industry") or ""
@@ -179,7 +197,6 @@ def related_stocks(ticker: str):
         if symbols:
             with ThreadPoolExecutor(max_workers=8) as ex:
                 info_map = dict(ex.map(_get_info, symbols))
-            # 같은 섹터 종목만 필터링 (섹터 정보가 없으면 전체 허용)
             results = []
             for s in symbols:
                 item = info_map.get(s)
@@ -236,7 +253,6 @@ def _naver_search(q: str) -> list:
             code = item.get("code", "")
             name = item.get("name", "")
             type_code = item.get("typeCode", "KOSPI")
-            # 한국 주식 코드는 반드시 6자리 숫자 — 4자리 일본 코드 등 차단
             if not code or not name or not (len(code) == 6 and code.isdigit()):
                 continue
             suffix = ".KQ" if type_code == "KOSDAQ" else ".KS"
@@ -259,13 +275,9 @@ def search_stocks(q: str):
                     seen.add(it["ticker"])
                     results.append(it)
 
-        # 1. 네이버 금융 — 한국어 종목명에 가장 정확
         _add(_naver_search(q))
-
-        # 2. 야후 파이낸스 글로벌 — 미국/해외 종목 및 영문 티커
         _add(_yahoo_search(q, region="US", lang="en-US", count=8))
 
-        # 3. 숫자 6자리 직접 입력 시 KS/KQ 둘 다 시도
         if not results and q.isdigit() and len(q) == 6:
             for suffix in [".KS", ".KQ"]:
                 ticker = q + suffix
@@ -284,7 +296,6 @@ def search_stocks(q: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ── 현재가 일괄 조회 (랭킹·드롭다운용) ──
 @app.get("/api/prices")
 def get_prices(tickers: str):
     import yfinance as yf
@@ -308,6 +319,69 @@ def get_prices(tickers: str):
             pass
         result[ticker] = round(float(price), 2) if price else None
     return result
+
+
+_active_uid: str = ""
+
+class ActiveUserBody(BaseModel):
+    uid: str
+
+@app.get("/api/active-user")
+def get_active_user():
+    """현재 앱에 로그인된 사용자의 UID 반환"""
+    return {"uid": _active_uid}
+
+@app.post("/api/active-user")
+def set_active_user(body: ActiveUserBody):
+    """프론트엔드 로그인/로그아웃 시 호출 — 활성 UID 갱신"""
+    global _active_uid
+    _active_uid = body.uid
+    return {"ok": True}
+
+
+@app.get("/api/watchlist")
+def get_watchlist(uid: str):
+    """Firestore에서 사용자 관심종목(favorites) 조회"""
+    try:
+        db = firebase_firestore.client()
+        snap = db.collection("users").document(uid).get()
+        favorites = snap.to_dict().get("favorites", []) if snap.exists else []
+        return {"favorites": favorites}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/tamagotchi")
+def get_tamagotchi(ticker: str):
+    """종목 현재가 + 등락률 반환 (BLE 다마고치용)"""
+    import yfinance as yf
+    try:
+        t = yf.Ticker(ticker)
+        fi = t.fast_info
+        price = (
+            getattr(fi, "last_price", None)
+            or getattr(fi, "lastPrice", None)
+            or getattr(fi, "regular_market_price", None)
+        )
+        prev = (
+            getattr(fi, "previous_close", None)
+            or getattr(fi, "previousClose", None)
+            or getattr(fi, "regular_market_previous_close", None)
+        )
+        if not price:
+            hist = t.history(period="2d")
+            if not hist.empty:
+                price = float(hist["Close"].iloc[-1])
+                prev = float(hist["Close"].iloc[-2]) if len(hist) > 1 else price
+        if not price:
+            raise HTTPException(status_code=404, detail="가격 조회 실패")
+        change_pct = ((price - prev) / prev * 100) if prev else 0.0
+        return {"price": round(float(price), 2), "change_pct": round(change_pct, 2)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ── 채민 / 로그인팀 담당 ──
 @app.post("/api/login")
@@ -334,35 +408,54 @@ async def login_check(authorization: str = Header(None)):
 @app.get("/api/analyze", response_model=StockAnalysisResponse)
 def analyze(ticker: str = "005930.KS"):
     try:
-        # 1. 뉴스/주가 수집 (유빈)
+        # 1. 유빈 담당: 뉴스 및 기초 데이터 (이 결과에 volume_history가 수집되어 들어옴)
         data_result = data_service.get_stock_data(ticker)
-
-        # 2. 감성 분석 (연우 - FinBERT)
+        
+        # 2. 연우 담당: 감성 에이전트 분석
         sentiment_result = sentiment_service.analyze(data_result.news)
-
-        # 3. 주가 예측 (희선 - Prophet)
+        
+        # 3. 희선 담당: 주가 예측 (이 결과에 volume_analysis가 분석되어 들어옴)
         prediction_result = prediction_service.predict(
             ticker, data_result.price, sentiment_result.sentiment
         )
-
-        # 4. Critic 에이전트 — 최종 신뢰도 산출 (희선)
+        
+        # 4. 희선 담당: Critic 에이전트 교차 검증
         warnings, confidence_score = critic.review(
             data_result, sentiment_result, prediction_result
         )
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-    return StockAnalysisResponse(
+    # 계약서상 StockAnalysisResponse 스키마에 맞춰 완벽히 데이터를 병합합니다.
+    response = StockAnalysisResponse(
         ticker=data_result.ticker,
         price=data_result.price,
         price_history=data_result.price_history,
+        volume_history=getattr(data_result, "volume_history", []),
+        institution_history=getattr(data_result, "institution_history", []),
+        foreign_history=getattr(data_result, "foreign_history", []),
+        individual_history=getattr(data_result, "individual_history", []),
+        investor_data=getattr(data_result, "investor_data", []),
         news=data_result.news,
         prediction=prediction_result.prediction,
         sentiment=sentiment_result.sentiment,
         warnings=warnings,
         confidence_score=confidence_score,
         explanation=sentiment_result.explanation,
+        trend=sentiment_result.trend,
+        top_keywords=sentiment_result.top_keywords,
+        volatility=sentiment_result.volatility,
+        # ★ [추가] 희선님이 분석한 volume_analysis 문구를 넘겨줍니다.
+        volume_analysis=getattr(prediction_result, "volume_analysis", None)
     )
+
+    bad_fields = _find_bad_floats(response.model_dump())
+    if bad_fields:
+        print("🚨 잘못된 float 값 발견:", bad_fields)
+
+    return response
 
 
 if __name__ == "__main__":

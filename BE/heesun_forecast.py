@@ -1,14 +1,6 @@
 # =============================================================================
 # heesun_forecast.py
-# 예측 불확실성(Forecast Uncertainty) 계산 모듈 (1일 단위 세분화 버전)
-#
-# Prophet이 예측한 주가 범위(신뢰구간)가 얼마나 넓은지를 "일자별로" 보고
-# "이 예측을 얼마나 믿을 수 있는가"를 0~100 점수로 반환한다.
-#
-#   - Prophet은 예측값(yhat)과 함께 상단(yhat_upper), 하단(yhat_lower)을 준다.
-#   - 구간이 좁을수록 → 확신 높음 → 신뢰도 높음
-#   - 구간이 넓을수록 → 모르겠다는 뜻 → 신뢰도 낮음
-#   - 절대 금액이 아닌 현재가 대비 비율로 측정한다.
+# 예측 불확실성(Forecast Uncertainty) 계산 모듈 (거래량 반영 버전)
 # =============================================================================
 
 import yfinance as yf
@@ -19,22 +11,12 @@ from datetime import datetime, timedelta
 
 
 # -----------------------------------------------------------------------------
-# 1단계: 주가 데이터 수집
+# 1단계: 주가 및 거래량 데이터 수집
 # -----------------------------------------------------------------------------
 
 def fetch_price_data(ticker: str, period_days: int = 365) -> pd.DataFrame:
     """
-    yfinance로 주가 데이터를 가져온다.
-
-    Args:
-        ticker: 종목 코드. 한국 주식은 뒤에 .KS 붙임 (예: "005930.KS")
-        period_days: 몇 일치 데이터를 가져올지 (기본 1년)
-
-    Returns:
-        날짜(ds)와 종가(y) 컬럼을 가진 DataFrame
-
-    Raises:
-        ValueError: 데이터가 너무 적거나 없을 때
+    yfinance로 주가와 거래량 데이터를 가져온다.
     """
     end_date = datetime.today()
     start_date = end_date - timedelta(days=period_days)
@@ -52,8 +34,9 @@ def fetch_price_data(ticker: str, period_days: int = 365) -> pd.DataFrame:
     if len(raw) < 30:
         raise ValueError(f"데이터가 {len(raw)}일치밖에 없습니다. 최소 30일 필요합니다.")
 
-    df = raw[["Close"]].reset_index()
-    df.columns = ["ds", "y"]
+    # [수정] Close(y)와 함께 Volume 컬럼을 포함하여 가공합니다.
+    df = raw[["Close", "Volume"]].reset_index()
+    df.columns = ["ds", "y", "Volume"]
     df["ds"] = pd.to_datetime(df["ds"])
     df = df.dropna()
 
@@ -61,21 +44,14 @@ def fetch_price_data(ticker: str, period_days: int = 365) -> pd.DataFrame:
 
 
 # -----------------------------------------------------------------------------
-# 2단계: Prophet으로 미래 주가 예측
+# 2단계: Prophet으로 미래 주가 예측 (거래량 변수 추가)
 # -----------------------------------------------------------------------------
 
 def run_prophet_forecast(df: pd.DataFrame, forecast_days: int = 7) -> pd.DataFrame:
     """
-    Prophet 모델로 미래 주가를 예측한다.
-
-    Args:
-        df: fetch_price_data()가 반환한 ds/y DataFrame
-        forecast_days: 며칠 뒤까지 예측할지 (기본 7일)
-
-    Returns:
-        Prophet의 예측 결과 DataFrame
-        주요 컬럼: ds, yhat, yhat_lower, yhat_upper
+    Prophet 모델에 거래량(Volume)을 추가 변수(Regressor)로 등록하여 예측한다.
     """
+    # 1. 모델 정의 및 거래량 추가 변수 등록
     model = Prophet(
         daily_seasonality=False,
         weekly_seasonality=True,
@@ -83,16 +59,32 @@ def run_prophet_forecast(df: pd.DataFrame, forecast_days: int = 7) -> pd.DataFra
         interval_width=0.80,
         changepoint_prior_scale=0.05
     )
+    
+    # [추가] Prophet에 거래량을 외부 설명 변수로 추가합니다.
+    model.add_regressor("Volume")
 
+    # 모델 학습
     model.fit(df)
+    
+    # 2. 미래 예측용 시나리오 데이터프레임 생성
     future = model.make_future_dataframe(periods=forecast_days)
+    
+    # 과거 영역의 거래량 병합
+    future = future.merge(df[["ds", "Volume"]], on="ds", how="left")
+    
+    # 3. [추가] 미래 7일간의 거래량 채우기
+    # 미래 거래량은 알 수 없으므로, 가장 합리적인 '최근 5일간의 평균 거래량'을 가상 데이터로 주입합니다.
+    recent_volume_avg = df["Volume"].tail(5).mean()
+    future.loc[future["ds"] > df["ds"].max(), "Volume"] = recent_volume_avg
+
+    # 예측 실행
     forecast = model.predict(future)
 
     return forecast
 
 
 # -----------------------------------------------------------------------------
-# 3단계: 예측 불확실성 점수 계산 (일자별)
+# 3단계: 예측 불확실성 점수 계산 (일자별) - 기존 로직 유지
 # -----------------------------------------------------------------------------
 
 def _score_from_ratio(interval_ratio: float, ratio_max: float = 0.30) -> int:
@@ -107,41 +99,15 @@ def calculate_daily_uncertainty(
 ) -> list[dict]:
     """
     Prophet 예측 결과에서 '일자별' 불확실성 점수(0~100)를 계산한다.
-
-    핵심 로직 (하루 단위로 반복 적용):
-      1. 해당 날짜의 신뢰구간 너비를 구한다 (yhat_upper - yhat_lower)
-      2. 현재 주가 대비 비율로 변환한다
-      3. 비율을 0~100 점수로 변환한다 (좁을수록 높은 점수)
-      4. 과거 변동성(표준편차)은 전체 기간 공통값으로 계산 후,
-         날짜가 멀어질수록 페널티를 조금씩 더 반영해 가중 평균
-
-    Args:
-        forecast: run_prophet_forecast()가 반환한 DataFrame
-        current_price: 현재 주가
-        forecast_days: 분석할 미래 일수
-
-    Returns:
-        [
-            {
-                "day": 1,
-                "date": "2026-07-15",
-                "predicted_price": float,
-                "lower_bound": float,
-                "upper_bound": float,
-                "interval_ratio": float,
-                "confidence_score": int,
-                "warnings": list[str]
-            },
-            ...  # day forecast_days 까지
-        ]
     """
     today = pd.Timestamp.today().normalize()
     future_df = forecast[forecast["ds"] > today].head(forecast_days).reset_index(drop=True)
 
     if future_df.empty:
-        raise ValueError("미래 예측 데이터가 없습니다.")
+        # 혹시 오늘 날짜 기준 미래 데이터가 비어있다면 마지막 7일을 활용하는 안전 장치
+        future_df = forecast.tail(forecast_days).reset_index(drop=True)
 
-    # 과거 변동성 (공통값으로 계산 후 일자별 가중치만 다르게 적용)
+    # 과거 변동성
     past_df = forecast[forecast["ds"] <= today]
 
     if len(past_df) >= 10:
@@ -150,7 +116,7 @@ def calculate_daily_uncertainty(
         VOLATILITY_MAX = 0.05
         volatility_score = max(0, (1 - volatility / VOLATILITY_MAX)) * 100
     else:
-        volatility_score = 50  # 데이터 부족 시 중간값
+        volatility_score = 50
 
     daily_results = []
 
@@ -162,7 +128,7 @@ def calculate_daily_uncertainty(
         interval_score = _score_from_ratio(interval_ratio)
 
         # 날짜가 멀어질수록 변동성 페널티를 조금씩 더 반영
-        recency_penalty = 1 - (day_num - 1) * 0.03  # day1: 1.0, day7: 0.82
+        recency_penalty = 1 - (day_num - 1) * 0.03
         adj_volatility_score = volatility_score * recency_penalty
 
         final_score = int(interval_score * 0.70 + adj_volatility_score * 0.30)
@@ -195,31 +161,13 @@ def calculate_daily_uncertainty(
 # -----------------------------------------------------------------------------
 
 def run_forecast_uncertainty(ticker: str, forecast_days: int = 7) -> dict:
-    """
-    ticker 하나를 받아서 예측 불확실성 분석 전체를 실행한다.
-    FastAPI 노드에서 이 함수 하나만 호출하면 된다.
-
-    Args:
-        ticker: 종목 코드 (예: "005930.KS")
-        forecast_days: 예측 기간 (기본 7일)
-
-    Returns:
-        {
-            "ticker": str,
-            "current_price": float,
-            "data_period_days": int,
-            "forecast_days": int,
-            "daily": list[dict],       # day 1~forecast_days 예측
-            "warnings": list[str],     # 종목 레벨 경고
-        }
-    """
-    print(f"[1/3] {ticker} 주가 데이터 수집 중...")
+    print(f"[1/3] {ticker} 주가 및 거래량 데이터 수집 중...")
     df = fetch_price_data(ticker, period_days=365)
 
     current_price = float(df["y"].iloc[-1])
     data_period = len(df)
 
-    print(f"[2/3] Prophet 예측 실행 중... (데이터: {data_period}일치, 현재가: {current_price:,.0f}원)")
+    print(f"[2/3] 거래량 반영 Prophet 예측 실행 중... (데이터: {data_period}일치, 현재가: {current_price:,.0f}원)")
     forecast = run_prophet_forecast(df, forecast_days=forecast_days)
 
     print(f"[3/3] 일자별 불확실성 점수 계산 중...")
@@ -244,14 +192,14 @@ def run_forecast_uncertainty(ticker: str, forecast_days: int = 7) -> dict:
 
 
 # -----------------------------------------------------------------------------
-# 5단계: 직접 실행 테스트 (python heesun_forecast.py 로 실행)
+# 5단계: 직접 실행 테스트
 # -----------------------------------------------------------------------------
 
 if __name__ == "__main__":
     TEST_TICKER = "005930.KS"
 
     print("=" * 50)
-    print(f"예측 불확실성 분석 시작: {TEST_TICKER}")
+    print(f"예측 분석 시작 (거래량 반영): {TEST_TICKER}")
     print("=" * 50)
 
     result = run_forecast_uncertainty(TEST_TICKER, forecast_days=7)
