@@ -1,24 +1,178 @@
-# =============================================================================
-# heesun_forecast.py
-# 예측 불확실성(Forecast Uncertainty) 계산 모듈 (거래량 반영 버전)
-# =============================================================================
+"""
+[3단계: Prophet 기반 주가 예측 & 거래량 분석 레이어 — 담당: 희선]
 
-import yfinance as yf
+1. yfinance 안전 파싱 (MultiIndex 완벽 대응)
+2. Prophet + Volume Regressor (거래량 반영 시계열 예측)
+3. 2단계 감성 점수(Sentiment) 결합 휴리스틱 보정
+4. 일자별 예측 불확실성(Uncertainty Score) & 거래량 분석 생성
+"""
+
+import os
+import time
+import math
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import numpy as np
+import yfinance as yf
 from prophet import Prophet
-from datetime import datetime, timedelta
+
+from schemas import Prediction, PredictionResult, Sentiment
+
+USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
+SENTIMENT_ADJUSTMENT_WEIGHT = 0.02
+FORECAST_DAYS = 7
+
+# 종목별 Prophet 결과 캐시 (1시간 유효)
+_cache: dict = {}
+_CACHE_TTL = 3600
 
 
-# -----------------------------------------------------------------------------
-# 1단계: 주가 및 거래량 데이터 수집
-# -----------------------------------------------------------------------------
+# ==========================================
+# 1. 메인 인터페이스 (오케스트레이터 호출용)
+# ==========================================
+
+def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult:
+    """오케스트레이터가 호출하는 최상위 예측 함수"""
+    if USE_MOCK:
+        base = _get_mock_prediction(price)
+        volume_history = [1200000, 1500000, 900000, 1100000, 1300000, 2100000, 1800000]
+        volume_analysis = _analyze_volume(volume_history)
+    else:
+        base = _run_prophet(ticker, price)
+        volume_history = _get_actual_volume_history(ticker)
+        volume_analysis = _analyze_volume(volume_history)
+
+    # 2단계 감성 분석 결과(Sentiment)로 예측치 보정
+    adjusted = [_adjust_with_sentiment(day, sentiment) for day in base]
+    prediction_warning = _check_prediction_uncertainty(adjusted)
+
+    return PredictionResult(
+        prediction=adjusted,
+        prediction_warning=prediction_warning,
+        volume_history=volume_history,
+        volume_analysis=volume_analysis
+    )
+
+
+# ==========================================
+# 2. Prophet 실행 및 보정 로직
+# ==========================================
+
+def _run_prophet(ticker: str, price: float) -> list[Prediction]:
+    """캐시 적용 및 Prophet 모델 연동"""
+    cached = _cache.get(ticker)
+    if cached and time.time() - cached["ts"] < _CACHE_TTL:
+        print(f"⚡ [{ticker}] Prophet 예측 캐시 사용")
+        return cached["predictions"]
+
+    try:
+        result = run_forecast_pipeline(ticker, forecast_days=FORECAST_DAYS)
+        predictions = [
+            Prediction(
+                day=row["day"],
+                future_price=row["predicted_price"],
+                lower=row["lower_bound"],
+                upper=row["upper_bound"],
+                confidence_score=row["confidence_score"],
+            )
+            for row in result["daily"]
+        ]
+    except Exception as e:
+        print(f"⚠️ Prophet 예측 실패 ({ticker}): {e} -> Mock 데이터로 대체합니다.")
+        predictions = _get_mock_prediction(price)
+
+    _cache[ticker] = {"predictions": predictions, "ts": time.time()}
+    return predictions
+
+
+def _adjust_with_sentiment(prediction: Prediction, sentiment: Sentiment) -> Prediction:
+    """감성 점수(Positive - Negative)로 7일간 주가 예측치 보정"""
+    sentiment_score = sentiment.positive - sentiment.negative
+    adjustment = 1 + (sentiment_score * SENTIMENT_ADJUSTMENT_WEIGHT)
+    
+    return Prediction(
+        day=prediction.day,
+        future_price=round(prediction.future_price * adjustment, 1),
+        lower=round(prediction.lower * adjustment, 1),
+        upper=round(prediction.upper * adjustment, 1),
+        confidence_score=prediction.confidence_score,
+    )
+
+
+def _check_prediction_uncertainty(predictions: list[Prediction]) -> str | None:
+    """예측 구간(upper - lower)이 상단가 대비 10% 이상 넓어지면 변동성 경고 발생"""
+    for p in predictions:
+        spread = p.upper - p.lower
+        if p.future_price > 0 and (spread / p.future_price) > 0.1:
+            return "변동성 높음"
+    return None
+
+
+def _get_mock_prediction(price: float) -> list[Prediction]:
+    """Mock 데이터 반환용"""
+    predictions = []
+    for day in range(1, FORECAST_DAYS + 1):
+        future_price = price * (1 + 0.015 * day / FORECAST_DAYS)
+        spread_ratio = 0.01 + 0.005 * day
+        predictions.append(
+            Prediction(
+                day=day,
+                future_price=round(future_price, 1),
+                lower=round(future_price * (1 - spread_ratio), 1),
+                upper=round(future_price * (1 + spread_ratio), 1),
+                confidence_score=max(30, 100 - day * 8),
+            )
+        )
+    return predictions
+
+
+# ==========================================
+# 3. 거래량 수집 및 리포트 분석 로직
+# ==========================================
+
+def _get_actual_volume_history(ticker: str) -> list[int]:
+    """최근 7영업일의 거래량 수집 (yfinance Safe Extraction)"""
+    try:
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="1mo")
+        if not hist.empty and "Volume" in hist.columns:
+            volumes = hist["Volume"].dropna().tail(7).tolist()
+            return [int(v) for v in volumes]
+    except Exception as e:
+        print(f"❌ 거래량 수집 실패 ({ticker}): {e}")
+    
+    return [0, 0, 0, 0, 0, 0, 0]
+
+
+def _analyze_volume(volume_history: list[int]) -> str:
+    """거래량 변화율 계산 및 자연어 분석 문장 생성"""
+    clean_vols = [v for v in volume_history if v > 0]
+    if len(clean_vols) < 2:
+        return "최근 거래량 데이터가 충분하지 않아 분석이 제한적입니다."
+
+    yesterday_vol = clean_vols[-1]
+    prev_avg_vol = sum(clean_vols[:-1]) / len(clean_vols[:-1])
+
+    if prev_avg_vol == 0:
+        return "거래량 데이터가 부족하여 흐름 분석을 건너뜁니다."
+
+    increase_rate = ((yesterday_vol - prev_avg_vol) / prev_avg_vol) * 100
+
+    if increase_rate >= 50:
+        return f"최근 거래량이 이전 평균 대비 {increase_rate:.1f}% 급증하여 시장 관심이 크게 유입되고 있습니다. 가격 변동성 확대에 유의하세요."
+    elif increase_rate <= -30:
+        return f"최근 거래량이 이전 평균 대비 {abs(increase_rate):.1f}% 감소하여 관망세가 짙어지고 있습니다. 단기 횡보 가능성이 높습니다."
+    else:
+        return "최근 거래량이 평소 수준을 유지를 하고 있어 수급 불균형 없이 안정적인 거래 흐름을 보이고 있습니다."
+
+
+# ==========================================
+# 4. Prophet 시계열 엔진 (MultiIndex 파싱 보완)
+# ==========================================
 
 def fetch_price_data(ticker: str, period_days: int = 365) -> pd.DataFrame:
-    """
-    yfinance로 주가와 거래량 데이터를 가져온다.
-    """
-    end_date = datetime.today()
+    """yfinance 수집 및 데이터프레임 안전 파싱"""
+    end_date = datetime.now()
     start_date = end_date - timedelta(days=period_days)
 
     raw = yf.download(
@@ -29,29 +183,32 @@ def fetch_price_data(ticker: str, period_days: int = 365) -> pd.DataFrame:
     )
 
     if raw.empty:
-        raise ValueError(f"'{ticker}' 데이터를 가져올 수 없습니다. 종목 코드를 확인하세요.")
+        raise ValueError(f"'{ticker}' 주가 데이터를 가져올 수 없습니다.")
 
-    if len(raw) < 30:
-        raise ValueError(f"데이터가 {len(raw)}일치밖에 없습니다. 최소 30일 필요합니다.")
+    # MultiIndex 컬럼일 경우 Single Level로 단일화
+    if isinstance(raw.columns, pd.MultiIndex):
+        raw.columns = raw.columns.get_level_values(0)
 
-    # [수정] Close(y)와 함께 Volume 컬럼을 포함하여 가공합니다.
+    if "Close" not in raw.columns or "Volume" not in raw.columns:
+        raise ValueError(f"'{ticker}' 필수 데이터(Close, Volume)가 누락되었습니다.")
+
     df = raw[["Close", "Volume"]].reset_index()
     df.columns = ["ds", "y", "Volume"]
-    df["ds"] = pd.to_datetime(df["ds"])
+    df["ds"] = pd.to_datetime(df["ds"]).dt.tz_localize(None)
+    
+    # NaN 및 0 이하 값 처리
+    df["y"] = df["y"].ffill().bfill()
+    df["Volume"] = df["Volume"].replace(0, np.nan).ffill().bfill()
     df = df.dropna()
+
+    if len(df) < 30:
+        raise ValueError(f"학습용 데이터가 {len(df)}건으로 부족합니다. (최소 30건 필요)")
 
     return df
 
 
-# -----------------------------------------------------------------------------
-# 2단계: Prophet으로 미래 주가 예측 (거래량 변수 추가)
-# -----------------------------------------------------------------------------
-
 def run_prophet_forecast(df: pd.DataFrame, forecast_days: int = 7) -> pd.DataFrame:
-    """
-    Prophet 모델에 거래량(Volume)을 추가 변수(Regressor)로 등록하여 예측한다.
-    """
-    # 1. 모델 정의 및 거래량 추가 변수 등록
+    """Prophet + Volume Regressor 학습 및 미래 7일 예측"""
     model = Prophet(
         daily_seasonality=False,
         weekly_seasonality=True,
@@ -60,36 +217,20 @@ def run_prophet_forecast(df: pd.DataFrame, forecast_days: int = 7) -> pd.DataFra
         changepoint_prior_scale=0.05
     )
     
-    # [추가] Prophet에 거래량을 외부 설명 변수로 추가합니다.
+    # 거래량을 외생 변수로 등록
     model.add_regressor("Volume")
-
-    # 모델 학습
     model.fit(df)
     
-    # 2. 미래 예측용 시나리오 데이터프레임 생성
+    # 미래 예측 프레임 생성
     future = model.make_future_dataframe(periods=forecast_days)
-    
-    # 과거 영역의 거래량 병합
     future = future.merge(df[["ds", "Volume"]], on="ds", how="left")
     
-    # 3. [추가] 미래 7일간의 거래량 채우기
-    # 미래 거래량은 알 수 없으므로, 가장 합리적인 '최근 5일간의 평균 거래량'을 가상 데이터로 주입합니다.
-    recent_volume_avg = df["Volume"].tail(5).mean()
-    future.loc[future["ds"] > df["ds"].max(), "Volume"] = recent_volume_avg
+    # 미래 7일 거래량은 최근 5일 평균값으로 보정
+    recent_vol_avg = df["Volume"].tail(5).mean()
+    future["Volume"] = future["Volume"].fillna(recent_vol_avg)
 
-    # 예측 실행
     forecast = model.predict(future)
-
     return forecast
-
-
-# -----------------------------------------------------------------------------
-# 3단계: 예측 불확실성 점수 계산 (일자별) - 기존 로직 유지
-# -----------------------------------------------------------------------------
-
-def _score_from_ratio(interval_ratio: float, ratio_max: float = 0.30) -> int:
-    """구간 너비 비율 → 0~100 점수. 좁을수록 고득점."""
-    return int(max(0, (1 - interval_ratio / ratio_max)) * 100)
 
 
 def calculate_daily_uncertainty(
@@ -97,130 +238,82 @@ def calculate_daily_uncertainty(
     current_price: float,
     forecast_days: int = 7
 ) -> list[dict]:
-    """
-    Prophet 예측 결과에서 '일자별' 불확실성 점수(0~100)를 계산한다.
-    """
-    today = pd.Timestamp.today().normalize()
-    future_df = forecast[forecast["ds"] > today].head(forecast_days).reset_index(drop=True)
+    """일자별 예측 불확실성 및 신뢰도 점수(0~100) 계산"""
+    # 미래 forecast_days 항목 추출
+    future_df = forecast.tail(forecast_days).reset_index(drop=True)
+    past_df = forecast.iloc[:-forecast_days]
 
-    if future_df.empty:
-        # 혹시 오늘 날짜 기준 미래 데이터가 비어있다면 마지막 7일을 활용하는 안전 장치
-        future_df = forecast.tail(forecast_days).reset_index(drop=True)
-
-    # 과거 변동성
-    past_df = forecast[forecast["ds"] <= today]
-
+    # 과거 변동성 계산
     if len(past_df) >= 10:
         daily_returns = past_df["yhat"].pct_change().dropna()
-        volatility = daily_returns.std()
-        VOLATILITY_MAX = 0.05
-        volatility_score = max(0, (1 - volatility / VOLATILITY_MAX)) * 100
+        volatility = daily_returns.std() if not daily_returns.empty else 0.02
+        volatility_score = max(0, (1 - volatility / 0.05)) * 100
     else:
-        volatility_score = 50
+        volatility_score = 50.0
 
     daily_results = []
-
     for i, row in future_df.iterrows():
         day_num = i + 1
-
         width = row["yhat_upper"] - row["yhat_lower"]
-        interval_ratio = width / current_price
-        interval_score = _score_from_ratio(interval_ratio)
+        interval_ratio = width / current_price if current_price > 0 else 0.2
 
-        # 날짜가 멀어질수록 변동성 페널티를 조금씩 더 반영
-        recency_penalty = 1 - (day_num - 1) * 0.03
-        adj_volatility_score = volatility_score * recency_penalty
+        # 구간이 좁을수록 높은 점수
+        interval_score = max(0, (1 - interval_ratio / 0.30)) * 100
+        recency_penalty = 1 - ((day_num - 1) * 0.03)
+        adj_vol_score = volatility_score * recency_penalty
 
-        final_score = int(interval_score * 0.70 + adj_volatility_score * 0.30)
-
-        day_warnings = []
-        if interval_ratio > 0.20:
-            day_warnings.append(f"D+{day_num} 예측 구간이 현재가의 {interval_ratio*100:.1f}%로 매우 넓음")
-        elif interval_ratio > 0.10:
-            day_warnings.append(f"D+{day_num} 예측 구간이 현재가의 {interval_ratio*100:.1f}%로 불확실성 존재")
-
-        if final_score < 40:
-            day_warnings.append(f"D+{day_num} 예측 불확실성 높음")
+        final_score = int(interval_score * 0.70 + adj_vol_score * 0.30)
+        final_score = max(10, min(99, final_score))  # 10~99점 제약
 
         daily_results.append({
             "day": day_num,
             "date": row["ds"].strftime("%Y-%m-%d"),
-            "predicted_price": round(float(row["yhat"]), 0),
-            "lower_bound": round(float(row["yhat_lower"]), 0),
-            "upper_bound": round(float(row["yhat_upper"]), 0),
-            "interval_ratio": round(float(interval_ratio), 4),
+            "predicted_price": round(float(row["yhat"]), 1),
+            "lower_bound": round(float(row["yhat_lower"]), 1),
+            "upper_bound": round(float(row["upper_bound"] if "upper_bound" in row else row["yhat_upper"]), 1),
             "confidence_score": final_score,
-            "warnings": day_warnings,
         })
 
     return daily_results
 
 
-# -----------------------------------------------------------------------------
-# 4단계: 전체 파이프라인 실행 함수
-# -----------------------------------------------------------------------------
-
-def run_forecast_uncertainty(ticker: str, forecast_days: int = 7) -> dict:
-    print(f"[1/3] {ticker} 주가 및 거래량 데이터 수집 중...")
+def run_forecast_pipeline(ticker: str, forecast_days: int = 7) -> dict:
+    """전체 Prophet 파이프라인 처리"""
     df = fetch_price_data(ticker, period_days=365)
-
     current_price = float(df["y"].iloc[-1])
-    data_period = len(df)
-
-    print(f"[2/3] 거래량 반영 Prophet 예측 실행 중... (데이터: {data_period}일치, 현재가: {current_price:,.0f}원)")
+    
     forecast = run_prophet_forecast(df, forecast_days=forecast_days)
-
-    print(f"[3/3] 일자별 불확실성 점수 계산 중...")
     daily = calculate_daily_uncertainty(forecast, current_price, forecast_days)
-
-    overall_warnings = []
-    if data_period < 90:
-        overall_warnings.append(f"학습 데이터가 {data_period}일치로 부족 (권장: 90일 이상)")
-
-    last_day = daily[-1]
-    if last_day["confidence_score"] < 40:
-        overall_warnings.append("7일 후 예측 불확실성 높음 — 추가 검토 권장")
 
     return {
         "ticker": ticker,
         "current_price": current_price,
-        "data_period_days": data_period,
-        "forecast_days": forecast_days,
         "daily": daily,
-        "warnings": overall_warnings,
     }
 
 
-# -----------------------------------------------------------------------------
-# 5단계: 직접 실행 테스트
-# -----------------------------------------------------------------------------
+# ==========================================
+# 5. 셀프 테스트 실행
+# ==========================================
 
 if __name__ == "__main__":
-    TEST_TICKER = "005930.KS"
+    test_ticker = "005930.KS"  # 삼성전자
+    test_sentiment = Sentiment(positive=0.7, negative=0.3)
 
-    print("=" * 50)
-    print(f"예측 분석 시작 (거래량 반영): {TEST_TICKER}")
-    print("=" * 50)
+    print("=" * 60)
+    print(f"🚀 Prophet 예측 및 거래량 통합 분석 테스트: {test_ticker}")
+    print("=" * 60)
 
-    result = run_forecast_uncertainty(TEST_TICKER, forecast_days=7)
+    # USE_MOCK = False 로 테스트
+    os.environ["USE_MOCK_DATA"] = "false"
+    USE_MOCK = False
 
-    print(f"\n현재가: {result['current_price']:,.0f}원")
-    print(f"학습 데이터: {result['data_period_days']}일치\n")
+    res = predict(test_ticker, price=75000.0, sentiment=test_sentiment)
 
-    print("[일자별 예측]")
-    for d in result["daily"]:
-        print(
-            f"  D+{d['day']} ({d['date']}): "
-            f"{d['predicted_price']:,.0f}원  "
-            f"[{d['lower_bound']:,.0f} ~ {d['upper_bound']:,.0f}]  "
-            f"신뢰도 {d['confidence_score']}점"
-        )
-        for w in d["warnings"]:
-            print(f"     ⚠ {w}")
+    print(f"\n📊 거래량 리포트:\n {res.volume_analysis}")
+    print(f"\n📈 최근 7일 거래량: {res.volume_history}")
+    print(f"\n⚠️ 변동성 경고: {res.prediction_warning}\n")
 
-    if result["warnings"]:
-        print("\n[종목 레벨 경고]")
-        for w in result["warnings"]:
-            print(f"  ⚠ {w}")
-    else:
-        print("\n[경고 없음] 예측 신뢰도 양호")
+    print("[7일 주가 예측 결과]")
+    for p in res.prediction:
+        print(f"  Day {p.day}: 예측가 {p.future_price:,.0f}원 (구간: {p.lower:,.0f} ~ {p.upper:,.0f}) | 신뢰도 {p.confidence_score}점")

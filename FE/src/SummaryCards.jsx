@@ -48,24 +48,44 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
     const currency = getStockCurrency(stock, analysis);
     const formattedPrice = formatPrice(price, currency);
 
-    // prediction은 이제 1일~7일 단위 배열 — 7일 후(마지막 날) 값을 대표로 사용
+    // ── 어제 대비 오늘 변동 계산 ──
+    const priceHistory = analysis.price_history || [];
+    const yesterdayPrice = priceHistory.length >= 2
+      ? priceHistory[priceHistory.length - 2]
+      : null;
+    const priceChange = yesterdayPrice != null ? price - yesterdayPrice : null;
+    const priceChangePct = yesterdayPrice != null
+      ? ((price - yesterdayPrice) / yesterdayPrice * 100)
+      : null;
+    const changeStr = priceChange != null
+      ? `${priceChange >= 0 ? '+' : ''}${priceChange.toLocaleString()}원 (${priceChangePct >= 0 ? '+' : ''}${priceChangePct.toFixed(1)}%)`
+      : stock.change;
+    const isPositive = priceChange != null ? priceChange >= 0 : stock.isPositive;
+
+    // 예측가
     const finalDayPrediction = prediction?.length ? prediction[prediction.length - 1] : null;
     const formattedPredict = finalDayPrediction ? formatPrice(finalDayPrediction.future_price, currency) : '-';
     const formattedLower = finalDayPrediction ? formatPrice(finalDayPrediction.lower, currency) : '-';
     const formattedUpper = finalDayPrediction ? formatPrice(finalDayPrediction.upper, currency) : '-';
 
+    // 감성
     const posStr = Math.round(sentiment.positive * 100);
     const negStr = Math.round(sentiment.negative * 100);
-    const sentimentLabel = posStr > 60 ? '긍정 압도' : posStr > negStr + 15 ? '긍정 우세' : negStr > posStr + 15 ? '부정 우세' : '중립 혼재';
+    const sentimentLabel = posStr > 60 ? '긍정 압도'
+      : posStr > negStr + 15 ? '긍정 우세'
+      : negStr > posStr + 15 ? '부정 우세'
+      : '중립 혼재';
+
+    // 뉴스
     const newsCountStr = `${news.length}건`;
     const newsStatus = news.length >= 10 ? '충분' : news.length >= 5 ? '적정' : '권장치 미달';
-    
+
     return (
       <div className="summary-grid">
         <div className="card summary-card summary-card-main">
           <StockNameHeader stock={stock} isFavorite={isFavorite} onToggleFavorite={onToggleFavorite} />
           <span className="card-value" style={{ marginTop: 8 }}>{formattedPrice}</span>
-          <span className={`card-sub ${stock.isPositive ? 'positive' : 'negative'}`}>{stock.change}</span>
+          <span className={`card-sub ${isPositive ? 'positive' : 'negative'}`}>{changeStr}</span>
         </div>
         <div className="card summary-card">
           <span className="card-title">7일 예측가</span>

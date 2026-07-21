@@ -11,6 +11,7 @@ from pathlib import Path
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 import math
+import os
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,19 +21,23 @@ import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth, firestore as firebase_firestore
 
 from pydantic import BaseModel
-# ★ 팀 합의 스키마 파일에서 필요한 클래스들을 정확하게 로드합니다.
+# 팀 합의 스키마 파일에서 필요한 클래스들을 로드합니다.
 from schemas import StockAnalysisResponse
-import yubin_data as data_service
-import yeonwoo_sentiment as sentiment_service
-import heesun_prediction as prediction_service
-import critic
+
+# ----------------------------------------------------
+# 실제 BE 폴더 내 파일명으로 임포트 연결
+# ----------------------------------------------------
+import yubin_stock as data_service           # 1단계: 뉴스 및 주가 수집
+import yeonwoo_sentiment as sentiment_service # 2단계: 감성 분석 & XAI
+import heesun_forecast as prediction_service  # 3단계: Prophet 시계열 예측
+import critic                                # 4단계: Critic 모순 검증
 
 app = FastAPI(title="주식 리서치 통합 서버")
 
-# 🛠️ CORS 에러 해결을 위해 allow_origins 설정을 프론트엔드 주소로 명시적으로 변경했습니다.
+# CORS 에러 해결을 위해 allow_origins 설정 (Vite 프론트엔드 호환)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite 프론트엔드 서버 주소 허용
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -54,14 +59,18 @@ def _find_bad_floats(obj, path="root"):
     return bad
 
 
-# Firebase Admin SDK 초기화 (firebase_config.json 파일이 BE/ 폴더에 있어야 함)
+# Firebase Admin SDK 초기화
 try:
     if not firebase_admin._apps:
-        cred = credentials.Certificate("firebase_config.json")
-        firebase_admin.initialize_app(cred)
-        print("🚀 Firebase Admin SDK 초기화 성공!")
+        cred_path = Path(__file__).parent / "firebase_config.json"
+        if cred_path.exists():
+            cred = credentials.Certificate(str(cred_path))
+            firebase_admin.initialize_app(cred)
+            print("🚀 Firebase Admin SDK 초기화 성공!")
+        else:
+            print("⚠️ firebase_config.json 파일이 없어 Firebase 기능을 비활성화합니다.")
 except Exception as e:
-    print(f"⚠️  Firebase 초기화 실패 (로그인 기능 비활성화): {e}")
+    print(f"⚠️ Firebase 초기화 실패 (로그인 기능 비활성화): {e}")
 
 
 @app.get("/health")
@@ -69,7 +78,7 @@ def health():
     return {"status": "ok"}
 
 
-# 섹터별 한국 종목 폴백 목록 (Yahoo 추천 API 결과 없을 때 사용)
+# 섹터별 한국 종목 폴백 목록
 _SECTOR_FALLBACK = {
     "엔터·미디어": [
         ("352820.KS", "HYBE"),
@@ -114,7 +123,6 @@ _SECTOR_FALLBACK = {
     ],
 }
 
-# 한국어 섹터명 매핑
 _SECTOR_KR = {
     "Technology": "기술·IT",
     "Communication Services": "통신·미디어",
@@ -130,7 +138,6 @@ _SECTOR_KR = {
     "Entertainment": "엔터·미디어",
 }
 
-# 한국 주요 종목 한국어명 매핑 (yfinance가 영문만 제공하므로)
 _KR_NAME_MAP = {
     "005930.KS": "삼성전자",
     "000660.KS": "SK하이닉스",
@@ -165,7 +172,6 @@ _KR_NAME_MAP = {
 
 @app.get("/api/related")
 def related_stocks(ticker: str):
-    """야후 파이낸스 자동 연관 종목 추천 — 결과 없으면 섹터 기반 폴백"""
     import yfinance as _yf
     from concurrent.futures import ThreadPoolExecutor
 
@@ -188,7 +194,6 @@ def related_stocks(ticker: str):
             base_sector_en = ""
             base_sector_kr = ""
 
-        # 1차: Yahoo Finance 추천 API
         url = f"https://query2.finance.yahoo.com/v6/finance/recommendationsbysymbol/{ticker}"
         resp = http_requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
         recs = resp.json().get("finance", {}).get("result", [{}])[0].get("recommendedSymbols", [])
@@ -208,7 +213,6 @@ def related_stocks(ticker: str):
             if results:
                 return {"results": results[:6]}
 
-        # 2차 폴백: 섹터 기반 목록
         if base_sector_kr:
             fallback = _SECTOR_FALLBACK.get(base_sector_kr, [])
             results = [
@@ -242,7 +246,6 @@ def _yahoo_search(q: str, region: str = "US", lang: str = "en-US", count: int = 
 
 
 def _naver_search(q: str) -> list:
-    """네이버 증권 자동완성 — 한국어 종목명 검색에 최적화"""
     try:
         from urllib.parse import quote
         url = f"https://ac.stock.naver.com/ac?q={quote(q)}&target=stock,index,marketindicator"
@@ -264,7 +267,6 @@ def _naver_search(q: str) -> list:
 
 @app.get("/api/search")
 def search_stocks(q: str):
-    """전 세계 모든 상장 종목 검색 — 한국어·영어·티커 모두 지원"""
     try:
         seen = set()
         results = []
@@ -339,12 +341,10 @@ class ActiveUserBody(BaseModel):
 
 @app.get("/api/active-user")
 def get_active_user():
-    """현재 앱에 로그인된 사용자의 UID 반환"""
     return {"uid": _active_uid}
 
 @app.post("/api/active-user")
 def set_active_user(body: ActiveUserBody):
-    """프론트엔드 로그인/로그아웃 시 호출 — 활성 UID 갱신"""
     global _active_uid
     _active_uid = body.uid
     return {"ok": True}
@@ -352,7 +352,6 @@ def set_active_user(body: ActiveUserBody):
 
 @app.get("/api/watchlist")
 def get_watchlist(uid: str):
-    """Firestore에서 사용자 관심종목(favorites) 조회"""
     try:
         db = firebase_firestore.client()
         snap = db.collection("users").document(uid).get()
@@ -364,7 +363,6 @@ def get_watchlist(uid: str):
 
 @app.get("/api/tamagotchi")
 def get_tamagotchi(ticker: str):
-    """종목 현재가 + 등락률 반환 (BLE 다마고치용)"""
     import yfinance as yf
     try:
         t = yf.Ticker(ticker)
@@ -415,22 +413,22 @@ async def login_check(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail=f"유효하지 않은 토큰입니다: {str(e)}")
 
 
-# ── 희선 담당 (오케스트레이터) ──
+# ── 희선 담당 (주식 리서치 오케스트레이터) ──
 @app.get("/api/analyze", response_model=StockAnalysisResponse)
 def analyze(ticker: str = "005930.KS"):
     try:
-        # 1. 유빈 담당: 뉴스 및 기초 데이터 (이 결과에 volume_history가 수집되어 들어옴)
+        # 1단계: 뉴스 수집 및 주가 기본 데이터 수집 (yubin_stock.py 사용)
         data_result = data_service.get_stock_data(ticker)
         
-        # 2. 연우 담당: 감성 에이전트 분석
+        # 2단계: 뉴스 감성 분석 및 XAI (yeonwoo_sentiment.py 사용)
         sentiment_result = sentiment_service.analyze(data_result.news)
         
-        # 3. 희선 담당: 주가 예측 (이 결과에 volume_analysis가 분석되어 들어옴)
+        # 3단계: Prophet 기반 7일 주가 예측 (heesun_forecast.py 사용)
         prediction_result = prediction_service.predict(
             ticker, data_result.price, sentiment_result.sentiment
         )
         
-        # 4. 희선 담당: Critic 에이전트 교차 검증
+        # 4단계: Critic 모순 검증 (critic.py 사용)
         warnings, confidence_score = critic.review(
             data_result, sentiment_result, prediction_result
         )
@@ -439,12 +437,11 @@ def analyze(ticker: str = "005930.KS"):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-    # 계약서상 StockAnalysisResponse 스키마에 맞춰 완벽히 데이터를 병합합니다.
     response = StockAnalysisResponse(
         ticker=data_result.ticker,
         price=data_result.price,
-        price_history=data_result.price_history,
-        volume_history=getattr(data_result, "volume_history", []),
+        price_history=getattr(data_result, "price_history", []),
+        volume_history=getattr(prediction_result, "volume_history", []),
         institution_history=getattr(data_result, "institution_history", []),
         foreign_history=getattr(data_result, "foreign_history", []),
         individual_history=getattr(data_result, "individual_history", []),
@@ -460,13 +457,12 @@ def analyze(ticker: str = "005930.KS"):
         trend=sentiment_result.trend,
         top_keywords=sentiment_result.top_keywords,
         volatility=sentiment_result.volatility,
-        # ★ [추가] 희선님이 분석한 volume_analysis 문구를 넘겨줍니다.
         volume_analysis=getattr(prediction_result, "volume_analysis", None)
     )
 
     bad_fields = _find_bad_floats(response.model_dump())
     if bad_fields:
-        print("🚨 잘못된 float 값 발견:", bad_fields)
+        print("🚨 잘못된 float 값(NaN/Inf) 발견:", bad_fields)
 
     return response
 

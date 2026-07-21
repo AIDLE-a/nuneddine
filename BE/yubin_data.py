@@ -45,6 +45,39 @@ TICKER_KEYWORD_MAP = {
     "MRNA": ("Moderna mRNA vaccine", "모더나 백신"),
 }
 
+# ── [추가] 노이즈 / 광고 / 스팸 / 무관 기사 차단 키워드 ──────────────────────────
+EXCLUDE_KEYWORDS = [
+    "추천주", "리딩방", "특가", "이벤트", "할인", "목표가", "종목분석", 
+    "상한가", "급등주", "대박", "무료체험", "조건검색", "원룸", "분양",
+    "포토", "인사", "동정", "부음", "결혼", "카톡방", "텔레그램", "찌라시"
+]
+
+# ── [추가] 티커별 필수 브랜드/기업명 (제목에 최소 1개 필수 포함) ────────────────
+TICKER_ALIAS_MAP = {
+    "005930.KS": ["삼성전자", "samsung"],
+    "000660.KS": ["sk하이닉스", "하이닉스", "hynix"],
+    "TSLA": ["테슬라", "tesla"],
+    "AAPL": ["애플", "apple", "아이폰", "iphone"],
+    "035900.KS": ["jyp", "제이와이피"],
+    "035900.KQ": ["jyp", "제이와이피"],
+    "041510.KS": ["sm엔터", "에스엠", "sm ent"],
+    "035420.KS": ["네이버", "naver"],
+    "035720.KS": ["카카오", "kakao"],
+    "005380.KS": ["현대차", "현대자동차", "hyundai"],
+    "000270.KS": ["기아", "kia"],
+    "373220.KS": ["lg에너지솔루션", "lg엔솔"],
+    "006400.KS": ["삼성sdi", "samsung sdi"],
+    "051910.KS": ["lg화학", "lg chem"],
+    "207940.KS": ["삼성바이오로직스", "삼바", "samsung biologics"],
+    "068270.KS": ["셀트리온", "celltrion"],
+    "NVDA": ["엔비디아", "nvidia"],
+    "AMD": ["amd"],
+    "MSFT": ["마이크로소프트", "microsoft"],
+    "GOOGL": ["구글", "google", "알파벳", "alphabet"],
+    "META": ["메타", "meta", "페이스북", "facebook"],
+    "MRNA": ["모더나", "moderna"],
+}
+
 
 def get_stock_data(ticker: str) -> StockDataResult:
     """메인 함수 — 오케스트레이터가 이 함수만 호출함"""
@@ -73,7 +106,7 @@ def get_stock_data(ticker: str) -> StockDataResult:
     )
 
 
-def _fetch_price(ticker: str) -> tuple[float, list[float]]:
+def _fetch_price(ticker: str) -> tuple[float, list[float], list[float]]:
     import time
     last_err = None
     for attempt in range(3):
@@ -94,7 +127,6 @@ def _parse_dt(item: "NewsItem") -> datetime:
     try:
         s = item.published_at.replace("Z", "+00:00")
         dt = datetime.fromisoformat(s)
-        # timezone 정보 제거해서 naive로 통일
         if dt.tzinfo is not None:
             dt = dt.replace(tzinfo=None)
         return dt
@@ -114,13 +146,35 @@ def _get_ticker_keywords(ticker: str) -> tuple[str, str]:
         return ticker, ticker
 
 
+def _is_relevant_news(title: str, ticker: str) -> bool:
+    """
+    제목을 다각도로 분석하여 광고/스팸 및 무관 기사를 필터링합니다.
+    유빈 님의 yubin_filter.py 아이디어를 통합 고도화.
+    """
+    if not title:
+        return False
+        
+    title_clean = title.strip().lower()
+    
+    # 1. 스팸 / 광고 / 찌라시 키워드 차단
+    if any(ex in title_clean for ex in EXCLUDE_KEYWORDS):
+        return False
+        
+    # 2. 티커별 필수 상호명 포함 여부 확인
+    aliases = TICKER_ALIAS_MAP.get(ticker, [])
+    if aliases:
+        if not any(alias in title_clean for alias in aliases):
+            return False
+
+    return True
+
+
 def _fetch_yfinance_news(ticker: str) -> list["NewsItem"]:
-    """yfinance 내장 뉴스 — 티커와 직접 연관된 최신 기사 (무료, 키 불필요)"""
+    """yfinance 내장 뉴스 — 티커와 직접 연관된 최신 기사"""
     try:
         raw = yf.Ticker(ticker).news or []
         items = []
         for n in raw:
-            # yfinance 버전에 따라 구조가 다름 — 둘 다 처리
             content = n.get("content") or {}
             title = content.get("title") or n.get("title", "")
             url   = (content.get("canonicalUrl") or {}).get("url") or n.get("link", "")
@@ -141,7 +195,7 @@ def _fetch_yfinance_news(ticker: str) -> list["NewsItem"]:
 
 
 def _fetch_google_news(query: str, lang: str = "ko", country: str = "KR") -> list["NewsItem"]:
-    """Google News RSS — 무료, API 키 불필요, 최신 뉴스 50개"""
+    """Google News RSS — 최신 뉴스 50개"""
     import xml.etree.ElementTree as ET
     from urllib.parse import quote
     from email.utils import parsedate_to_datetime
@@ -175,35 +229,28 @@ def _fetch_google_news(query: str, lang: str = "ko", country: str = "KR") -> lis
 
 def _fetch_news(ticker: str) -> list[NewsItem]:
     """
-    4개 소스에서 최신 관련 뉴스를 수집해 합산.
-
-    우선순위:
-      1. yfinance 내장 뉴스 (티커 직접 연관, 무료)
-      2. 네이버 뉴스 API (한국어, 100개)
-      3. Google News RSS 한국어 (무료, 키 불필요)
-      4. NewsAPI (영어 보완)
+    4개 소스 수집 + 통합 필터링 알고리즘 적용
     """
     keyword_en, keyword_kr = _get_ticker_keywords(ticker)
-    # NewsAPI 필터: 키워드 단어 중 하나라도 제목에 있으면 통과
-    filter_words = {w.lower() for w in keyword_en.split() if len(w) > 2}
 
     ko_news: list[NewsItem] = []
     en_news: list[NewsItem] = []
 
-    # ── 1. yfinance 내장 뉴스 ────────────────────────────────────────────
+    # 1. yfinance 내장 뉴스
     yf_news = _fetch_yfinance_news(ticker)
     en_news.extend(yf_news)
 
-    # ── 2. 네이버 뉴스 (한국어, 최대 100개) ─────────────────────────────
+    # 2. 네이버 뉴스 API (주요 단어 정확 매칭 구문 설정)
     if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
         try:
+            main_kr = keyword_kr.split()[0]  # 예: "삼성전자"
             res = requests.get(
                 "https://openapi.naver.com/v1/search/news.json",
                 headers={
                     "X-Naver-Client-Id": NAVER_CLIENT_ID,
                     "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
                 },
-                params={"query": keyword_kr, "display": 100, "sort": "date"},
+                params={"query": f'"{main_kr}"', "display": 100, "sort": "date"},
                 timeout=10,
             )
             if res.status_code == 200:
@@ -229,18 +276,19 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
         except Exception as e:
             print(f"⚠️ 네이버 뉴스 수집 실패: {e}")
 
-    # ── 3. Google News RSS (한국어) ───────────────────────────────────────
+    # 3. Google News RSS
     google_ko = _fetch_google_news(keyword_kr, lang="ko", country="KR")
     ko_news.extend(google_ko)
 
-    # ── 4. NewsAPI (영어 보완) ────────────────────────────────────────────
+    # 4. NewsAPI (영어 - 큰따옴표 정확 매칭)
     if NEWS_API_KEY:
         from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
         try:
+            main_en = keyword_en.split()[0]  # 예: "Samsung" or "SK"
             response = requests.get(
                 "https://newsapi.org/v2/everything",
                 params={
-                    "q": keyword_en,
+                    "q": f'"{main_en}"',
                     "apiKey": NEWS_API_KEY,
                     "language": "en",
                     "sortBy": "publishedAt",
@@ -252,8 +300,7 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
             if response.status_code == 200:
                 for a in response.json().get("articles", []):
                     title = a.get("title", "") or ""
-                    # 제목에 키워드 단어 중 하나라도 있으면 통과 (이전보다 완화)
-                    if title and any(w in title.lower() for w in filter_words):
+                    if title:
                         en_news.append(NewsItem(
                             title=title,
                             source=a.get("source", {}).get("name", "NewsAPI"),
@@ -263,35 +310,32 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
         except Exception as e:
             print(f"⚠️ NewsAPI 수집 실패: {e}")
 
-    # ── 각각 최신순 정렬 ─────────────────────────────────────────────────
+    # 각각 최신순 정렬
     ko_news.sort(key=_parse_dt, reverse=True)
     en_news.sort(key=_parse_dt, reverse=True)
 
-    # ── 중복 제거 (제목 기준) 후 한국어 우선 합산 ────────────────────────
+    # ── [핵심] 중복 제거 + 노이즈 정화 필터링 ────────────────────────────────
     seen: set[str] = set()
     unique: list[NewsItem] = []
+
     for item in ko_news + en_news:
         key = item.title.strip().lower()
         if key and key not in seen:
             seen.add(key)
-            unique.append(item)
+            # ✨ 정밀 필터링 통과한 관련 기사만 담음
+            if _is_relevant_news(item.title, ticker):
+                unique.append(item)
 
     print(
         f"📰 뉴스 수집 완료 — "
-        f"yfinance: {len(yf_news)}개 / 네이버: {len(ko_news) - len(google_ko)}개 / "
-        f"Google RSS: {len(google_ko)}개 / NewsAPI: {len(en_news) - len(yf_news)}개 → "
-        f"최종: {len(unique)}개"
+        f"원천 수집: {len(ko_news) + len(en_news)}개 → "
+        f"필터링 후 정화된 최종 뉴스: {len(unique)}개"
     )
     return unique
 
 
-
 def _fetch_investor_data(ticker: str, pages: int = 10):
-    """
-    네이버 금융에서 기관/외국인/개인 순매매 데이터 수집.
-    pages: 가져올 페이지 수 (1페이지 = 약 10일치, 10페이지 = 약 100일치)
-    반환: (기관_리스트, 외국인_리스트, 개인_리스트, investor_data_리스트)
-    """
+    """네이버 금융에서 기관/외국인/개인 순매매 데이터 수집"""
     try:
         if ".KS" not in ticker and ".KQ" not in ticker:
             return [], [], [], []
@@ -331,7 +375,6 @@ def _fetch_investor_data(ticker: str, pages: int = 10):
         foreign = [float(v) if v == v else 0.0 for v in full_df['외국인_순매매'].tolist()]
         individual = [-(i + f) for i, f in zip(institution, foreign)]
 
-        # 날짜별 상세 데이터
         investor_data = [
             InvestorData(
                 date=str(row['날짜']),
@@ -375,7 +418,7 @@ def _fetch_financial_data(ticker: str):
 
 
 def _fetch_realtime(ticker: str) -> list:
-    """1분 단위 실시간 주가 수집 (당일 장중 데이터)"""
+    """1분 단위 실시간 주가 수집"""
     try:
         from schemas import RealtimePrice
         stock = yf.Ticker(ticker)
@@ -385,7 +428,6 @@ def _fetch_realtime(ticker: str) -> list:
 
         result = []
         for dt, row in hist.iterrows():
-            # "14:55" 형태로 시간만 추출
             time_str = dt.strftime("%H:%M")
             result.append(RealtimePrice(
                 time=time_str,
@@ -397,6 +439,7 @@ def _fetch_realtime(ticker: str) -> list:
     except Exception as e:
         print(f"⚠️ 실시간 데이터 수집 실패: {e}")
         return []
+
 
 def _check_info_uncertainty(news: list[NewsItem]) -> str | None:
     if len(news) < 10:
@@ -419,7 +462,7 @@ def _get_mock_data(ticker: str) -> StockDataResult:
             published_at=datetime.now().isoformat(),
         ),
         NewsItem(
-            title="반도체 업황 회복 기대감 확산",
+            title="삼성전자 반도체 업황 회복 기대감 확산",
             source="매경",
             url="https://example.com/news/2",
             published_at=(datetime.now() - timedelta(days=1)).isoformat(),
