@@ -441,7 +441,7 @@ def analyze(ticker: str = "005930.KS"):
         ticker=data_result.ticker,
         price=data_result.price,
         price_history=getattr(data_result, "price_history", []),
-        volume_history=getattr(prediction_result, "volume_history", []),
+        volume_history=getattr(data_result, "volume_history", []),
         institution_history=getattr(data_result, "institution_history", []),
         foreign_history=getattr(data_result, "foreign_history", []),
         individual_history=getattr(data_result, "individual_history", []),
@@ -457,7 +457,11 @@ def analyze(ticker: str = "005930.KS"):
         trend=sentiment_result.trend,
         top_keywords=sentiment_result.top_keywords,
         volatility=sentiment_result.volatility,
-        volume_analysis=getattr(prediction_result, "volume_analysis", None)
+        volume_analysis=getattr(prediction_result, "volume_analysis", None),
+        news_agent_report=getattr(getattr(data_result, "news_uncertainty", None), "reasoning", None),
+        news_agent_confidence=getattr(getattr(data_result, "news_uncertainty", None), "confidence", None),
+        news_agent_epistemic=getattr(getattr(data_result, "news_uncertainty", None), "epistemic", None),
+        news_agent_aleatoric=getattr(getattr(data_result, "news_uncertainty", None), "aleatoric", None)
     )
 
     bad_fields = _find_bad_floats(response.model_dump())

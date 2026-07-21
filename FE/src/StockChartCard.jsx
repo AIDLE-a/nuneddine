@@ -18,13 +18,13 @@ function StockChartCard({ stock, analysis }) {
   const realtimeData = analysis?.realtime || [];
 
   // 영업이익 성장률 / 영업이익률
-  const rawOpGrowth = analysis?.operating_growth 
-    ?? analysis?.financial?.operating_profit_growth 
-    ?? analysis?.financial?.operating_growth 
+  const rawOpGrowth = analysis?.operating_growth
+    ?? analysis?.financial?.operating_profit_growth
+    ?? analysis?.financial?.operating_growth
     ?? analysis?.financial?.op_growth;
 
-  const rawOpMargin = analysis?.operating_margin 
-    ?? analysis?.financial?.op_margin 
+  const rawOpMargin = analysis?.operating_margin
+    ?? analysis?.financial?.op_margin
     ?? analysis?.financial?.operating_margin;
 
   const opGrowth = (rawOpGrowth != null && !isNaN(rawOpGrowth)) ? rawOpGrowth : 10.2;
@@ -39,7 +39,7 @@ function StockChartCard({ stock, analysis }) {
   const historyVolumes = allVolumes.slice(-7);
 
   const formatPrice = (v) => isKorean ? `${(v / 1000).toFixed(0)}k` : `$${v}`;
-  
+
   const formatVolume = (v) => {
     if (v == null || isNaN(v) || v === 0) return '–';
     if (v >= 1000000) return `${(v / 1000000).toFixed(1)}M`;
@@ -96,23 +96,26 @@ function StockChartCard({ stock, analysis }) {
   }));
 
   // 3. 모달용 상세 테이블 데이터
+  // investor_data는 최신순(200일), price_history는 오래된순(243일)
+  const investorData = analysis?.investor_data || [];
+
   const fullDetailTableData = allPrices.map((price, i) => {
     const daysAgo = allPrices.length - 1 - i;
     const label = daysAgo === 0 ? '오늘' : `${daysAgo}일전`;
     const prevPrice = i > 0 ? allPrices[i - 1] : null;
     const change = prevPrice ? price - prevPrice : null;
-    const vol = allVolumes[i] || Math.floor(price * 1.2 + 50000);
-
+    const vol = allVolumes[i] || null;
+    return { label, price, change, volume: vol };
+  }).reverse().map((row, i) => {
+    // 최신순으로 investor_data 매칭
+    const inv = investorData[i] || null;
     return {
-      label,
-      price,
-      change,
-      volume: vol,
-      individual: indivHist[i] ?? null,
-      foreign: forgHist[i] ?? null,
-      institution: instHist[i] ?? null,
+      ...row,
+      individual: inv ? inv.individual : null,
+      foreign: inv ? inv.foreign : null,
+      institution: inv ? inv.institution : null,
     };
-  }).reverse();
+  });
 
   // 실시간 차트용
   const realtimeChartData = realtimeData.map((d) => ({
@@ -211,13 +214,13 @@ function StockChartCard({ stock, analysis }) {
             <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#6b7280' }} />
             <YAxis domain={[minVal, maxVal]} tickFormatter={formatPrice} tick={{ fontSize: 11, fill: '#6b7280' }} width={48} />
             <Tooltip content={<PriceTooltip />} />
-            
+
             {/* 실제 종가 선 (검은색/어두운 톤) */}
             <Line type="monotone" dataKey="price" stroke="#111827" strokeWidth={2.5} dot={{ r: 4, fill: '#111827' }} connectNulls={false} />
-            
+
             {/* 예측 주가 선 (주황색 점선) */}
             <Line type="monotone" dataKey="predicted" stroke="#F59E0B" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, fill: '#F59E0B', stroke: '#fff', strokeWidth: 1.5 }} connectNulls={true} />
-            
+
             {/* 어제/오늘 구분 기준선 */}
             <ReferenceLine x="어제" stroke="#d1d5db" strokeDasharray="3 3" />
           </ComposedChart>

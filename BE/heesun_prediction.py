@@ -53,7 +53,7 @@ def _run_prophet(ticker: str, price: float) -> list[Prediction]:
         print(f"⚡ {ticker} Prophet 캐시 사용")
         return cached["predictions"]
 
-    from heesun_forecast import run_forecast_uncertainty
+    from heesun_forecast import run_forecast_pipeline as run_forecast_uncertainty
 
     result = run_forecast_uncertainty(ticker, forecast_days=FORECAST_DAYS)
 

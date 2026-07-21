@@ -55,6 +55,25 @@ class NewsItem(BaseModel):
     published_at: str
     description: Optional[str] = None  # 뉴스 요약 (감성 분석 정확도 향상용)
 
+# ── 베이지안 불확실성 구조 (Uncertainty-aware Agent) ──
+class UncertaintyResult(BaseModel):
+    """
+    각 에이전트의 불확실성 정량화
+    논문: Uncertainty-aware soft sensor using Bayesian recurrent neural networks
+    """
+    epistemic: float    # 인식론적 불확실성 (데이터 부족, 0~1)
+    aleatoric: float    # 우발적 불확실성 (노이즈/혼재, 0~1)
+    confidence: float   # 최종 신뢰도 (0~1)
+    reasoning: str      # 판단 이유
+
+class NewsAgentResult(BaseModel):
+    """뉴스 에이전트 결과 — 불확실성 포함"""
+    news: List[NewsItem]
+    uncertainty: UncertaintyResult
+    retry_count: int = 0
+    info_warning: Optional[str] = None
+
+
 
 class StockDataResult(BaseModel):
     """유빈이 만드는 결과물 — 정보 불확실성을 스스로 판단해서 같이 반환"""
@@ -67,7 +86,8 @@ class StockDataResult(BaseModel):
     individual_history: List[float] = []
     investor_data: List[InvestorData] = []
     financial: Optional[FinancialData] = None
-    realtime: List[RealtimePrice] = []  # 1분 단위 실시간 주가
+    realtime: List[RealtimePrice] = []
+    news_uncertainty: Optional[UncertaintyResult] = None  # 뉴스 에이전트 불확실성
     news: List[NewsItem]
     info_warning: Optional[str] = None
 
@@ -134,7 +154,8 @@ class StockAnalysisResponse(BaseModel):
     individual_history: List[float] = []
     investor_data: List[InvestorData] = []
     financial: Optional[FinancialData] = None
-    realtime: List[RealtimePrice] = []  # 1분 단위 실시간 주가
+    realtime: List[RealtimePrice] = []
+    news_uncertainty: Optional[UncertaintyResult] = None  # 뉴스 에이전트 불확실성
     news: List[NewsItem]
     prediction: List[Prediction]  # 변경: 단건 -> 1일 단위 리스트
     sentiment: Sentiment
@@ -145,3 +166,7 @@ class StockAnalysisResponse(BaseModel):
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
     volume_analysis: Optional[str] = None  # [★추가] 리포트에 들어갈 거래량 분석 요약 문구
+    news_agent_report: Optional[str] = None  # 뉴스 에이전트 분석 리포트
+    news_agent_confidence: Optional[float] = None  # 뉴스 에이전트 신뢰도
+    news_agent_epistemic: Optional[float] = None   # Epistemic 불확실성
+    news_agent_aleatoric: Optional[float] = None   # Aleatoric 불확실성

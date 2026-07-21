@@ -93,7 +93,10 @@ def get_stock_data(ticker: str) -> StockDataResult:
     financial = _fetch_financial_data(ticker)
     realtime = _fetch_realtime(ticker)
     info_warning = _check_info_uncertainty(news)
+    news_uncertainty = _calc_news_uncertainty(news)
+    print(f"📊 뉴스 에이전트 신뢰도: {news_uncertainty.confidence:.2f} | {news_uncertainty.reasoning}")
     return StockDataResult(
+        news_uncertainty=news_uncertainty,
         ticker=ticker,
         price=price,
         price_history=price_history,
@@ -117,8 +120,15 @@ def _fetch_price(ticker: str) -> tuple[float, list[float], list[float]]:
             stock = yf.Ticker(ticker)
             hist = stock.history(period="1y")
             if not hist.empty:
-                closes = [round(float(v), 2) for v in hist["Close"].tolist()]
-                volumes = [float(v) for v in hist["Volume"].tolist()]
+                import math
+                closes_raw = [float(v) for v in hist["Close"].tolist()]
+                volumes_raw = [float(v) for v in hist["Volume"].tolist()]
+                # nan 제거
+                valid = [(c, v) for c, v in zip(closes_raw, volumes_raw) if not math.isnan(c)]
+                if not valid:
+                    raise ValueError("유효한 가격 데이터 없음")
+                closes = [round(c, 2) for c, v in valid]
+                volumes = [v for c, v in valid]
                 return closes[-1], closes, volumes
         except Exception as e:
             last_err = e
@@ -467,6 +477,137 @@ def _fetch_realtime(ticker: str) -> list:
         print(f"⚠️ 실시간 데이터 수집 실패: {e}")
         return []
 
+
+
+def _calc_news_uncertainty(news: list) -> "UncertaintyResult":
+    """
+    뉴스 에이전트 불확실성 정량화
+    Epistemic: 데이터 부족 / Aleatoric: 데이터 노이즈
+    """
+    from schemas import UncertaintyResult
+    from datetime import datetime
+
+    if not news:
+        return UncertaintyResult(
+            epistemic=1.0, aleatoric=1.0, confidence=0.0,
+            reasoning="뉴스 없음 — 분석 불가"
+        )
+
+    now = datetime.now()
+    epistemic_scores = {}
+    aleatoric_scores = {}
+    details = []
+
+    # ① 뉴스 수
+    count_score = max(0.0, 1 - len(news) / 50)
+    epistemic_scores["count"] = count_score
+    details.append(f"{'✅' if count_score < 0.2 else '⚠️'} 뉴스 수 {len(news)}건")
+
+    # ② 출처 다양성
+    sources = set(n.source for n in news)
+    source_score = max(0.0, 1 - len(sources) / 10)
+    epistemic_scores["source"] = source_score
+    details.append(f"{'✅' if source_score < 0.2 else '⚠️'} 출처 {len(sources)}개")
+
+    # ③ 최근 24시간 비율
+    recent_1d = 0
+    recent_3d = 0
+    for n in news:
+        try:
+            pub = _parse_dt(n)
+            days = (now - pub.replace(tzinfo=None)).days
+            if days <= 1: recent_1d += 1
+            if days <= 3: recent_3d += 1
+        except:
+            pass
+    recent_ratio = recent_1d / len(news)
+    epistemic_scores["time"] = max(0.0, 1 - recent_ratio)
+    details.append(f"{'✅' if recent_ratio > 0.5 else '⚠️'} 24h 뉴스 {recent_ratio*100:.0f}% / 3일 {recent_3d/len(news)*100:.0f}%")
+
+    # ④ 주요 언론사 비율
+    major = {"한국경제","매경","조선비즈","연합뉴스","서울경제","이데일리","머니투데이","헤럴드경제","bloomberg","reuters","cnbc","wsj"}
+    major_count = sum(1 for n in news if any(m in n.source.lower() for m in major))
+    major_ratio = major_count / len(news)
+    epistemic_scores["major"] = max(0.0, 1 - major_ratio)
+    details.append(f"{'✅' if major_ratio > 0.3 else '⚠️'} 주요언론 {major_ratio*100:.0f}% ({major_count}건)")
+
+    # ⑤ description 보유율
+    has_desc = sum(1 for n in news if n.description and len(n.description) > 20)
+    desc_ratio = has_desc / len(news)
+    aleatoric_scores["desc"] = max(0.0, 1 - desc_ratio)
+    details.append(f"{'✅' if desc_ratio > 0.7 else '⚠️'} description {desc_ratio*100:.0f}%")
+
+    # ⑥ 오래된 뉴스 비율
+    old_count = 0
+    for n in news:
+        try:
+            pub = _parse_dt(n)
+            if (now - pub.replace(tzinfo=None)).days > 7:
+                old_count += 1
+        except:
+            old_count += 1
+    old_ratio = old_count / len(news)
+    aleatoric_scores["old"] = old_ratio
+    details.append(f"{'✅' if old_ratio < 0.2 else '⚠️'} 7일이상 {old_ratio*100:.0f}%")
+
+    # ⑦ 중복 기사 비율
+    prefixes = [n.title[:10] for n in news]
+    dup_ratio = 1 - len(set(prefixes)) / len(prefixes)
+    aleatoric_scores["dup"] = dup_ratio
+    details.append(f"{'✅' if dup_ratio < 0.2 else '⚠️'} 중복 {dup_ratio*100:.0f}%")
+
+    # ⑧ 짧은 제목 비율
+    short_ratio = sum(1 for n in news if len(n.title) < 15) / len(news)
+    aleatoric_scores["short"] = short_ratio
+    details.append(f"{'✅' if short_ratio < 0.1 else '⚠️'} 짧은제목 {short_ratio*100:.0f}%")
+
+    # 가중 평균
+    epistemic = round(min(1.0, max(0.0,
+        epistemic_scores["count"]  * 0.35 +
+        epistemic_scores["source"] * 0.25 +
+        epistemic_scores["time"]   * 0.25 +
+        epistemic_scores["major"]  * 0.15
+    )), 3)
+
+    aleatoric = round(min(1.0, max(0.0,
+        aleatoric_scores["desc"]  * 0.35 +
+        aleatoric_scores["old"]   * 0.25 +
+        aleatoric_scores["dup"]   * 0.25 +
+        aleatoric_scores["short"] * 0.15
+    )), 3)
+
+    confidence = round(max(0.0, min(1.0, 1 - (epistemic * 0.6 + aleatoric * 0.4))), 3)
+
+    # 리포트 형식으로 출력
+    status = "우수" if confidence >= 0.85 else "양호" if confidence >= 0.70 else "보통" if confidence >= 0.50 else "낮음"
+    ep_status = "낮음 ✅" if epistemic < 0.2 else "보통 ⚠️" if epistemic < 0.5 else "높음 ❌"
+    al_status = "낮음 ✅" if aleatoric < 0.2 else "보통 ⚠️" if aleatoric < 0.5 else "높음 ❌"
+
+    ep_details = " / ".join(d for d in details[:4])
+    al_details = " / ".join(d for d in details[4:])
+
+    reasoning = (
+        f"\n╔══════════════════════════════════════════════════╗\n"
+        f"║           📰 뉴스 에이전트 분석 리포트            ║\n"
+        f"╠══════════════════════════════════════════════════╣\n"
+        f"║  종합 신뢰도: {confidence:.2f} / 1.00  ({status}){' ' * (20 - len(status))}║\n"
+        f"╠══════════════════════════════════════════════════╣\n"
+        f"║  [Epistemic Uncertainty: {epistemic:.2f} — {ep_status}]{' ' * max(0, 14 - len(ep_status))}║\n"
+        f"║  {ep_details[:50]:<50}║\n"
+        f"╠══════════════════════════════════════════════════╣\n"
+        f"║  [Aleatoric Uncertainty: {aleatoric:.2f} — {al_status}]{' ' * max(0, 14 - len(al_status))}║\n"
+        f"║  {al_details[:50]:<50}║\n"
+        f"╠══════════════════════════════════════════════════╣\n"
+        f"║  판단: {'데이터 충분, 품질 양호' if confidence >= 0.8 else '데이터 보통, 추가 수집 권장' if confidence >= 0.6 else '데이터 부족, 신뢰도 낮음':<44}║\n"
+        f"╚══════════════════════════════════════════════════╝"
+    )
+
+    return UncertaintyResult(
+        epistemic=epistemic,
+        aleatoric=aleatoric,
+        confidence=confidence,
+        reasoning=reasoning,
+    )
 
 def _check_info_uncertainty(news: list[NewsItem]) -> str | None:
     if len(news) < 10:

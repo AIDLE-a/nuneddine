@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import NewsAgentModal from './NewsAgentModal';
 
 function AiReportCard({ stock, analysis, isLoading }) {
   const [showFinancial, setShowFinancial] = useState(false);
@@ -14,7 +15,6 @@ function AiReportCard({ stock, analysis, isLoading }) {
 
   const financial = analysis?.financial;
 
-  // 재무지표 항목 정의
   const financialItems = financial ? [
     {
       label: 'PER (주가수익비율)',
@@ -121,6 +121,7 @@ function AiReportCard({ stock, analysis, isLoading }) {
                   재무제표 ↗
                 </button>
               )}
+              <NewsAgentModal analysis={analysis} />
             </div>
           </>
         )}
@@ -136,7 +137,6 @@ function AiReportCard({ stock, analysis, isLoading }) {
             style={{ background: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 560, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
             onClick={e => e.stopPropagation()}
           >
-            {/* 헤더 */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <div>
                 <h3 style={{ margin: 0, color: '#111827', fontSize: 16 }}>재무제표 핵심 지표</h3>
@@ -148,7 +148,6 @@ function AiReportCard({ stock, analysis, isLoading }) {
               >✕</button>
             </div>
 
-            {/* 재무지표 목록 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
               {financialItems.map((item, i) => (
                 <div
@@ -185,7 +184,6 @@ function AiReportCard({ stock, analysis, isLoading }) {
               ))}
             </div>
 
-            {/* 안내 문구 */}
             <p style={{ margin: '16px 0 0', fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
               ※ 재무지표는 투자 참고용이며 투자 권유가 아닙니다.
             </p>
