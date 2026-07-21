@@ -12,7 +12,7 @@ import PostDetailPage from './pages/PostDetailPage.jsx';
 import RankingPage from './pages/RankingPage.jsx';
 
 import { analyzeStock, getRelatedStocks } from './api.js';
-import { auth, saveHistory, getHistory, deleteHistory, addFavorite, removeFavorite, getFavorites, incrementStockStat } from './firebase.js';
+import { auth, saveHistory, getHistory, deleteHistory, addFavorite, removeFavorite, getFavorites, incrementStockStat, updateFavoritePurchase } from './firebase.js';
 import { signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 import { provider } from './firebase.js';
 
@@ -252,9 +252,16 @@ function AppInner() {
           <Route path="/favorites" element={
             <FavoritesPage
               favorites={favorites}
+              user={user}
               onRemoveFavorite={async (ticker) => {
                 await removeFavorite(user.uid, ticker);
                 setFavorites(prev => prev.filter(f => f.ticker !== ticker));
+              }}
+              onUpdatePurchase={async (ticker, purchasePrice, purchaseCurrency, purchaseQuantity) => {
+                await updateFavoritePurchase(user.uid, ticker, purchasePrice, purchaseCurrency, purchaseQuantity);
+                setFavorites(prev => prev.map(f =>
+                  f.ticker === ticker ? { ...f, purchasePrice, purchaseCurrency, purchaseQuantity } : f
+                ));
               }}
               onAnalyze={handleAnalyze}
             />

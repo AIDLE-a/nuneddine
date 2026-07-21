@@ -515,11 +515,62 @@ body {
 .ranking-ticker { font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
 .ranking-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .ranking-count-badge { display: flex; align-items: baseline; gap: 2px; background: var(--accent-bg); border: 1.5px solid rgba(13,148,136,0.18); border-radius: 12px; padding: 6px 14px; }
-.ranking-count-num { font-size: 22px; font-weight: 900; color: var(--accent); line-height: 1; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
-.ranking-count-label { font-size: 11px; font-weight: 700; color: var(--accent); opacity: 0.65; }
+.ranking-count-num { font-size: 14px; font-weight: 900; color: var(--accent); line-height: 1; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.ranking-count-label { font-size: 14px; font-weight: 700; color: var(--accent); opacity: 0.65; }
+.ranking-price-group { display: flex; flex-direction: row; align-items: baseline; gap: 8px; }
 .ranking-price { font-size: 14px; font-weight: 700; color: var(--text-secondary); flex-shrink: 0; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-.ranking-analyze-btn { padding: 9px 18px; background: var(--gradient); color: #fff; border: none; border-radius: 50px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; font-family: inherit; box-shadow: 0 4px 14px rgba(13,148,136,0.30); transition: opacity 0.14s, transform 0.15s var(--ease); }
+.ranking-change { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ranking-change.positive { color: var(--positive); }
+.ranking-change.negative { color: var(--negative); }
+.ranking-analyze-btn { padding: 9px 18px; background: var(--gradient); color: #fff; border: none; border-radius: 50px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; font-family: inherit; box-shadow: 0 4px 14px rgba(13,148,136,0.30); transition: opacity 0.14s, transform 0.15s var(--ease); }
 .ranking-analyze-btn:hover { opacity: 0.88; transform: translateY(-1px); }
+
+/* ── 관심 종목 페이지 ── */
+/* ranking-item / ranking-info / ranking-name / ranking-ticker / ranking-right /
+   ranking-price-group / ranking-price / ranking-change / ranking-analyze-btn 공통 재사용 */
+
+.fav-tab-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+.fav-tab { padding: 9px 18px; border-radius: 50px; border: 1.5px solid var(--border); background: var(--surface); color: var(--text-secondary); font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; display: flex; align-items: center; gap: 6px; transition: all 0.15s var(--ease); }
+.fav-tab.active { background: var(--gradient); color: #fff; border-color: transparent; box-shadow: 0 4px 14px rgba(13,148,136,0.25); }
+.fav-tab:not(.active):hover { border-color: var(--accent); color: var(--accent); }
+.fav-tab-count { font-size: 11px; font-weight: 800; background: rgba(255,255,255,0.25); padding: 1px 6px; border-radius: 20px; }
+.fav-tab:not(.active) .fav-tab-count { background: var(--surface-2); color: var(--text-muted); }
+
+/* fav-card: ranking-item를 column으로 재정의 */
+.fav-card { flex-direction: column !important; align-items: stretch !important; gap: 0 !important; }
+.fav-card-main { display: flex; align-items: center; gap: 16px; }
+
+/* 가격 영역: 중간 flex 공간 */
+.fav-price-area { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 0 8px; }
+
+/* 손익 행: 전체 너비, 구분선 스타일 */
+.fav-gain-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.fav-gain-meta { font-size: 14px; color: var(--text-muted); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fav-gain-divider { font-size: 14px; color: var(--border-strong); }
+.fav-gain-total { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; margin-left: auto; }
+.fav-gain-total.positive { color: var(--positive); }
+.fav-gain-total.negative { color: var(--negative); }
+.fav-gain-pct { font-size: 14px; font-weight: 700; margin-left: 4px; opacity: 0.85; }
+
+/* 매수가 입력 버튼 */
+.fav-purchase-btn { display: flex; align-items: center; gap: 5px; padding: 8px 14px; background: var(--surface-2); color: var(--text-secondary); border: 1.5px solid var(--border); border-radius: 50px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; transition: all 0.15s var(--ease); }
+.fav-purchase-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+/* 삭제 버튼 */
+.fav-remove-btn { display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; background: none; border: 1.5px solid var(--border); border-radius: 50%; color: var(--text-muted); cursor: pointer; transition: all 0.15s var(--ease); flex-shrink: 0; }
+.fav-remove-btn:hover { border-color: var(--negative); color: var(--negative); background: var(--negative-light); }
+
+/* 매수가 입력폼 행: 전체 너비 */
+.fav-purchase-input-row { display: flex; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); align-items: center; flex-wrap: wrap; }
+.fav-currency-select { padding: 7px 6px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-primary); font-size: 12px; font-family: inherit; cursor: pointer; outline: none; flex-shrink: 0; }
+.fav-currency-select:focus { border-color: var(--accent); }
+.fav-price-input { flex: 2; min-width: 80px; padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-primary); font-size: 13px; font-family: inherit; outline: none; font-variant-numeric: tabular-nums; }
+.fav-price-input:focus { border-color: var(--accent); }
+.fav-qty-input { flex: 1; min-width: 60px; padding: 7px 10px; border: 1.5px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text-primary); font-size: 13px; font-family: inherit; outline: none; font-variant-numeric: tabular-nums; }
+.fav-qty-input:focus { border-color: var(--accent); }
+.fav-save-btn { padding: 7px 14px; background: var(--gradient); color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; flex-shrink: 0; }
+.fav-save-btn:disabled { opacity: 0.4; cursor: default; }
+.fav-cancel-btn { padding: 7px 10px; background: none; color: var(--text-muted); border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; flex-shrink: 0; }
 
 /* ── Images / Lightbox ── */
 .post-image-section { margin: 10px 0; }
