@@ -14,6 +14,9 @@ import requests
 import yfinance as yf
 from datetime import datetime, timedelta
 from schemas import StockDataResult, NewsItem
+from dotenv import load_dotenv
+from pathlib import Path
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
@@ -219,8 +222,22 @@ def _fetch_google_news(query: str, lang: str = "ko", country: str = "KR") -> lis
                 iso_date = parsedate_to_datetime(pub).isoformat()
             except Exception:
                 iso_date = datetime.now().isoformat()
+            import re
+            raw_desc = item.findtext("description", "")
+            # HTML 태그 + 엔티티 제거
+            clean_desc = re.sub(r"<[^>]+>", "", raw_desc).strip() if raw_desc else ""
+            clean_desc = clean_desc.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", '"').replace("&#39;", "'").strip()
+            # 제목이랑 똑같으면 description 비우기
+            if clean_desc.startswith(title.split(" - ")[0][:20]):
+                clean_desc = ""
+            # 제목에서 " - 언론사명" 제거 (Google RSS 형식)
+            if " - " in title:
+                parts = title.rsplit(" - ", 1)
+                title = parts[0].strip()
+                if not source or source == "Google News":
+                    source = parts[1].strip()
             if title:
-                items.append(NewsItem(title=title, source=source, url=link, published_at=iso_date))
+                items.append(NewsItem(title=title, source=source, url=link, published_at=iso_date, description=clean_desc))
         return items
     except Exception as e:
         print(f"⚠️ Google News RSS 수집 실패: {e}")
@@ -241,14 +258,16 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
     en_news.extend(yf_news)
 
     # 2. 네이버 뉴스 API (주요 단어 정확 매칭 구문 설정)
-    if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
+    naver_id = os.getenv("NAVER_CLIENT_ID", "") or NAVER_CLIENT_ID
+    naver_secret = os.getenv("NAVER_CLIENT_SECRET", "") or NAVER_CLIENT_SECRET
+    if naver_id and naver_secret:
         try:
             main_kr = keyword_kr.split()[0]  # 예: "삼성전자"
             res = requests.get(
                 "https://openapi.naver.com/v1/search/news.json",
                 headers={
-                    "X-Naver-Client-Id": NAVER_CLIENT_ID,
-                    "X-Naver-Client-Secret": NAVER_CLIENT_SECRET,
+                    "X-Naver-Client-Id": naver_id,
+                    "X-Naver-Client-Secret": naver_secret,
                 },
                 params={"query": f'"{main_kr}"', "display": 100, "sort": "date"},
                 timeout=10,
@@ -267,11 +286,18 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
                         iso_date = dt.isoformat()
                     except Exception:
                         iso_date = pub_date
+                    clean_desc = (
+                        it.get("description", "")
+                        .replace("<b>", "").replace("</b>", "")
+                        .replace("&quot;", '"').replace("&amp;", "&")
+                        .replace("&#39;", "'")
+                    )
                     ko_news.append(NewsItem(
                         title=clean_title,
                         source="네이버 뉴스",
                         url=it.get("link", ""),
                         published_at=iso_date,
+                        description=clean_desc,
                     ))
         except Exception as e:
             print(f"⚠️ 네이버 뉴스 수집 실패: {e}")
@@ -306,6 +332,7 @@ def _fetch_news(ticker: str) -> list[NewsItem]:
                             source=a.get("source", {}).get("name", "NewsAPI"),
                             url=a.get("url", ""),
                             published_at=a.get("publishedAt", ""),
+                            description=a.get("description", "") or "",
                         ))
         except Exception as e:
             print(f"⚠️ NewsAPI 수집 실패: {e}")

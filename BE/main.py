@@ -27,7 +27,7 @@ from schemas import StockAnalysisResponse
 # ----------------------------------------------------
 # 실제 BE 폴더 내 파일명으로 임포트 연결
 # ----------------------------------------------------
-import yubin_stock as data_service           # 1단계: 뉴스 및 주가 수집
+import yubin_data as data_service            # 1단계: 뉴스 및 주가 수집
 import yeonwoo_sentiment as sentiment_service # 2단계: 감성 분석 & XAI
 import heesun_forecast as prediction_service  # 3단계: Prophet 시계열 예측
 import critic                                # 4단계: Critic 모순 검증
