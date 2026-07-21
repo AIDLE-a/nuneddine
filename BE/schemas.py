@@ -19,6 +19,26 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 
+class RealtimePrice(BaseModel):
+    """1분 단위 실시간 주가"""
+    time: str      # "14:55" 형태
+    price: float
+    volume: int
+
+
+class FinancialData(BaseModel):
+    """재무제표 핵심 지표"""
+    per: Optional[float] = None           # 주가수익비율 (낮을수록 저평가)
+    forward_per: Optional[float] = None   # 예상 PER
+    pbr: Optional[float] = None           # 주가순자산비율
+    roe: Optional[float] = None           # 자기자본이익률 (높을수록 수익성 좋음)
+    debt_to_equity: Optional[float] = None  # 부채비율 (낮을수록 안정적)
+    revenue_growth: Optional[float] = None  # 매출 성장률
+    earnings_growth: Optional[float] = None # 영업이익 성장률
+    operating_margin: Optional[float] = None # 영업이익률
+    current_ratio: Optional[float] = None   # 유동비율 (높을수록 안정적)
+
+
 class InvestorData(BaseModel):
     """날짜별 기관/외국인/개인 순매매 데이터"""
     date: str
@@ -45,7 +65,9 @@ class StockDataResult(BaseModel):
     institution_history: List[float] = []
     foreign_history: List[float] = []
     individual_history: List[float] = []
-    investor_data: List[InvestorData] = []  # 날짜별 상세 수급 데이터 (전체 기간)
+    investor_data: List[InvestorData] = []
+    financial: Optional[FinancialData] = None
+    realtime: List[RealtimePrice] = []  # 1분 단위 실시간 주가
     news: List[NewsItem]
     info_warning: Optional[str] = None
 
@@ -110,7 +132,9 @@ class StockAnalysisResponse(BaseModel):
     institution_history: List[float] = []
     foreign_history: List[float] = []
     individual_history: List[float] = []
-    investor_data: List[InvestorData] = []  # 날짜별 상세 수급 (상세 모달용)
+    investor_data: List[InvestorData] = []
+    financial: Optional[FinancialData] = None
+    realtime: List[RealtimePrice] = []  # 1분 단위 실시간 주가
     news: List[NewsItem]
     prediction: List[Prediction]  # 변경: 단건 -> 1일 단위 리스트
     sentiment: Sentiment

@@ -10,12 +10,14 @@ const DAYS = ['7일전', '6일전', '5일전', '4일전', '3일전', '2일전', 
 function StockChartCard({ stock, analysis }) {
   const [showPriceDetail, setShowPriceDetail] = useState(false);
   const [showVolumeDetail, setShowVolumeDetail] = useState(false);
+  const [showRealtime, setShowRealtime] = useState(false);
   const isKorean = isKoreanStock(stock, analysis);
 
   const allPrices = (analysis?.price_history?.length)
     ? analysis.price_history : stock.chartData;
   const allVolumes = analysis?.volume_history || [];
   const investorData = analysis?.investor_data || [];
+  const realtimeData = analysis?.realtime || [];
 
   const historyPrices = allPrices.slice(-7);
   const historyVolumes = allVolumes.slice(-7);
@@ -63,15 +65,25 @@ function StockChartCard({ stock, analysis }) {
     return { label, price, change, changePct, volume: allVolumes[i] || 0 };
   }).reverse();
 
+  // 실시간 차트 — 30분마다 레이블 표시
+  const realtimeChartData = realtimeData.map((d, i) => ({
+    time: d.time,
+    price: d.price,
+    volume: d.volume,
+    label: i % 30 === 0 ? d.time : '',
+  }));
+
+  const realtimePrices = realtimeData.map(d => d.price).filter(Boolean);
+  const rtMin = realtimePrices.length ? Math.floor(Math.min(...realtimePrices) * 0.999) : 0;
+  const rtMax = realtimePrices.length ? Math.ceil(Math.max(...realtimePrices) * 1.001) : 0;
+  const latestRealtime = realtimeData[realtimeData.length - 1];
+  const firstRealtime = realtimeData[0];
+  const rtChange = latestRealtime && firstRealtime ? latestRealtime.price - firstRealtime.price : null;
+  const rtChangePct = rtChange && firstRealtime ? (rtChange / firstRealtime.price * 100) : null;
+
   const ModalWrapper = ({ onClose, children }) => (
-    <div
-      style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-      onClick={onClose}
-    >
-      <div
-        style={{ background: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 700, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}
-        onClick={e => e.stopPropagation()}
-      >
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }} onClick={onClose}>
+      <div style={{ background: '#ffffff', borderRadius: 16, padding: 24, width: '90%', maxWidth: 700, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         {children}
       </div>
     </div>
@@ -107,15 +119,35 @@ function StockChartCard({ stock, analysis }) {
     );
   };
 
+  const RealtimeTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    const val = payload[0]?.value;
+    return (
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
+        <p style={{ margin: '0 0 4px', color: '#6b7280' }}>{label}</p>
+        {val != null && <p style={{ margin: 0, fontWeight: 600, color: '#3B82F6' }}>
+          {isKorean ? `${val.toLocaleString()}원` : `$${val.toLocaleString()}`}
+        </p>}
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="card chart-section">
         {/* 주가 차트 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <h3 style={{ margin: 0 }}>주가 흐름 & 예측 (7일)</h3>
-          <button onClick={() => setShowPriceDetail(true)} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, border: '1px solid #d1d5db', background: 'transparent', color: '#6b7280', cursor: 'pointer' }}>
-            전체 기간 상세 ↗
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {realtimeData.length > 0 && (
+              <button onClick={() => setShowRealtime(true)} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, border: '1px solid #3B82F6', background: 'transparent', color: '#3B82F6', cursor: 'pointer', fontWeight: 500 }}>
+                실시간 ↗
+              </button>
+            )}
+            <button onClick={() => setShowPriceDetail(true)} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, border: '1px solid #d1d5db', background: 'transparent', color: '#6b7280', cursor: 'pointer' }}>
+              전체 기간 상세 ↗
+            </button>
+          </div>
         </div>
 
         <ResponsiveContainer width="100%" height={220}>
@@ -158,6 +190,79 @@ function StockChartCard({ stock, analysis }) {
           </>
         )}
       </div>
+
+      {/* 실시간 모달 */}
+      {showRealtime && (
+        <ModalWrapper onClose={() => setShowRealtime(false)}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <h3 style={{ margin: 0, color: '#111827', fontSize: 16 }}>
+                실시간 주가
+                <span style={{ marginLeft: 8, fontSize: 12, padding: '2px 8px', borderRadius: 20, background: '#dcfce7', color: '#16a34a', fontWeight: 500 }}>당일</span>
+              </h3>
+              <p style={{ margin: '4px 0 0', fontSize: 12, color: '#6b7280' }}>
+                {realtimeData.length}분 데이터 · {firstRealtime?.time} ~ {latestRealtime?.time}
+                {rtChange != null && (
+                  <span style={{ marginLeft: 8, fontWeight: 600, color: rtChange >= 0 ? '#10B981' : '#EF4444' }}>
+                    {rtChange >= 0 ? '+' : ''}{rtChange.toLocaleString()}원 ({rtChangePct?.toFixed(2)}%)
+                  </span>
+                )}
+              </p>
+            </div>
+            <CloseBtn onClose={() => setShowRealtime(false)} />
+          </div>
+
+          {/* 실시간 주가 차트 */}
+          <ResponsiveContainer width="100%" height={240}>
+            <ComposedChart data={realtimeChartData} margin={{ top: 5, right: 16, left: 0, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+              <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9ca3af' }} interval={29} />
+              <YAxis domain={[rtMin, rtMax]} tickFormatter={formatPrice} tick={{ fontSize: 10, fill: '#9ca3af' }} width={52} />
+              <Tooltip content={<RealtimeTooltip />} />
+              <Line type="monotone" dataKey="price" stroke="#3B82F6" strokeWidth={1.5} dot={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+
+          {/* 실시간 표 — 최근 20개만 */}
+          <div style={{ marginTop: 16 }}>
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '0 0 8px' }}>최근 20분</p>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid #e5e7eb', background: '#f9fafb' }}>
+                  {['시간', '주가', '거래량'].map(h => (
+                    <th key={h} style={{ padding: '8px 12px', textAlign: h === '시간' ? 'left' : 'right', color: '#6b7280', fontWeight: 600, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...realtimeData].reverse().slice(0, 20).map((row, i) => {
+                  const prevPrice = realtimeData[realtimeData.length - 1 - i - 1]?.price;
+                  const change = prevPrice ? row.price - prevPrice : null;
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}
+                      onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      <td style={{ padding: '8px 12px', color: '#6b7280', fontSize: 12 }}>{row.time}</td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: change > 0 ? '#10B981' : change < 0 ? '#EF4444' : '#111827' }}>
+                        {isKorean ? `${row.price.toLocaleString()}원` : `$${row.price.toLocaleString()}`}
+                        {change != null && change !== 0 && (
+                          <span style={{ fontSize: 11, marginLeft: 6 }}>
+                            {change > 0 ? '▲' : '▼'}{Math.abs(change).toLocaleString()}
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: '8px 12px', textAlign: 'right', color: '#6b7280' }}>
+                        {row.volume.toLocaleString()}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </ModalWrapper>
+      )}
 
       {/* 주가 상세 모달 */}
       {showPriceDetail && (
@@ -209,13 +314,10 @@ function StockChartCard({ stock, analysis }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <div>
               <h3 style={{ margin: 0, color: '#111827', fontSize: 16 }}>투자자별 수급 상세</h3>
-              <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>
-                총 {investorData.length}일 · 양수=순매수 / 음수=순매도
-              </p>
+              <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>총 {investorData.length}일 · 양수=순매수 / 음수=순매도</p>
             </div>
             <CloseBtn onClose={() => setShowVolumeDetail(false)} />
           </div>
-
           <div style={{ display: 'flex', gap: 16, marginBottom: 14 }}>
             {[['기관', '#3B82F6'], ['외국인', '#8B5CF6'], ['개인', '#F59E0B']].map(([label, color]) => (
               <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#6b7280' }}>
@@ -224,7 +326,6 @@ function StockChartCard({ stock, analysis }) {
               </div>
             ))}
           </div>
-
           {investorData.length > 0 ? (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
@@ -241,15 +342,9 @@ function StockChartCard({ stock, analysis }) {
                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                   >
                     <td style={{ padding: '10px 12px', color: '#6b7280', fontSize: 12 }}>{row.date}</td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 500, color: row.institution > 0 ? '#3B82F6' : row.institution < 0 ? '#EF4444' : '#9ca3af' }}>
-                      {formatFlow(row.institution)}
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 500, color: row.foreign > 0 ? '#8B5CF6' : row.foreign < 0 ? '#EF4444' : '#9ca3af' }}>
-                      {formatFlow(row.foreign)}
-                    </td>
-                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 500, color: row.individual > 0 ? '#F59E0B' : row.individual < 0 ? '#EF4444' : '#9ca3af' }}>
-                      {formatFlow(row.individual)}
-                    </td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 500, color: row.institution > 0 ? '#3B82F6' : row.institution < 0 ? '#EF4444' : '#9ca3af' }}>{formatFlow(row.institution)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 500, color: row.foreign > 0 ? '#8B5CF6' : row.foreign < 0 ? '#EF4444' : '#9ca3af' }}>{formatFlow(row.foreign)}</td>
+                    <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 500, color: row.individual > 0 ? '#F59E0B' : row.individual < 0 ? '#EF4444' : '#9ca3af' }}>{formatFlow(row.individual)}</td>
                   </tr>
                 ))}
               </tbody>

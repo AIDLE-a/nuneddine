@@ -54,6 +54,8 @@ def get_stock_data(ticker: str) -> StockDataResult:
     price, price_history, volume_history = _fetch_price(ticker)
     news = _fetch_news(ticker)
     institution_history, foreign_history, individual_history, investor_data = _fetch_investor_data(ticker)
+    financial = _fetch_financial_data(ticker)
+    realtime = _fetch_realtime(ticker)
     info_warning = _check_info_uncertainty(news)
     return StockDataResult(
         ticker=ticker,
@@ -64,6 +66,8 @@ def get_stock_data(ticker: str) -> StockDataResult:
         foreign_history=foreign_history,
         individual_history=individual_history,
         investor_data=investor_data,
+        financial=financial,
+        realtime=realtime,
         news=news,
         info_warning=info_warning,
     )
@@ -345,6 +349,54 @@ def _fetch_investor_data(ticker: str, pages: int = 10):
     except Exception as e:
         print(f"⚠️ 수급 데이터 수집 실패: {e}")
         return [], [], [], []
+
+
+def _fetch_financial_data(ticker: str):
+    """yFinance에서 핵심 재무 지표 수집"""
+    try:
+        from schemas import FinancialData
+        stock = yf.Ticker(ticker)
+        info = stock.info
+
+        return FinancialData(
+            per=info.get('trailingPE'),
+            forward_per=info.get('forwardPE'),
+            pbr=info.get('priceToBook'),
+            roe=info.get('returnOnEquity'),
+            debt_to_equity=info.get('debtToEquity'),
+            revenue_growth=info.get('revenueGrowth'),
+            earnings_growth=info.get('earningsGrowth'),
+            operating_margin=info.get('operatingMargins'),
+            current_ratio=info.get('currentRatio'),
+        )
+    except Exception as e:
+        print(f"⚠️ 재무 데이터 수집 실패: {e}")
+        return None
+
+
+def _fetch_realtime(ticker: str) -> list:
+    """1분 단위 실시간 주가 수집 (당일 장중 데이터)"""
+    try:
+        from schemas import RealtimePrice
+        stock = yf.Ticker(ticker)
+        hist = stock.history(period="1d", interval="1m")
+        if hist.empty:
+            return []
+
+        result = []
+        for dt, row in hist.iterrows():
+            # "14:55" 형태로 시간만 추출
+            time_str = dt.strftime("%H:%M")
+            result.append(RealtimePrice(
+                time=time_str,
+                price=round(float(row["Close"]), 2),
+                volume=int(row["Volume"]),
+            ))
+        print(f"⚡ 실시간 데이터 수집 완료: {len(result)}개")
+        return result
+    except Exception as e:
+        print(f"⚠️ 실시간 데이터 수집 실패: {e}")
+        return []
 
 def _check_info_uncertainty(news: list[NewsItem]) -> str | None:
     if len(news) < 10:
