@@ -15,6 +15,8 @@ function makeStockObj(ticker, name) {
 
 function WatchlistPanel({ favorites, history, recommendations, onSelectStock, onRemoveFavorite, onDeleteHistory }) {
   const [hoveredHistory, setHoveredHistory] = useState(null);
+  // 이유 툴팁이 열려있는 추천 종목의 ticker (한 번에 하나만 열리도록 단일 상태로 관리)
+  const [openReasonTicker, setOpenReasonTicker] = useState(null);
 
   // 섹터별 그룹핑
   const recBySector = (recommendations ?? []).reduce((acc, r) => {
@@ -101,10 +103,72 @@ function WatchlistPanel({ favorites, history, recommendations, onSelectStock, on
                     <div
                       key={r.ticker}
                       className="watchlist-chip watchlist-chip--rec"
-                      onClick={() => onSelectStock(makeStockObj(r.ticker, r.name))}
+                      style={{ position: 'relative' }}
                       title={r.ticker}
                     >
-                      <span className="watchlist-chip-name">{r.name}</span>
+                      <span
+                        className="watchlist-chip-name"
+                        onClick={() => onSelectStock(makeStockObj(r.ticker, r.name))}
+                      >
+                        {r.name}
+                      </span>
+
+                      {r.reason && (
+                        <button
+                          className="rec-reason-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setOpenReasonTicker(prev => (prev === r.ticker ? null : r.ticker));
+                          }}
+                          title="왜 추천됐나요?"
+                          style={{
+                            marginLeft: 4,
+                            fontSize: 10,
+                            width: 14,
+                            height: 14,
+                            lineHeight: '14px',
+                            borderRadius: '50%',
+                            border: '1px solid var(--text-muted)',
+                            color: 'var(--text-muted)',
+                            background: 'transparent',
+                            cursor: 'pointer',
+                            padding: 0,
+                          }}
+                        >
+                          ?
+                        </button>
+                      )}
+
+                      {openReasonTicker === r.ticker && r.reason && (
+                        <div
+                          className="rec-reason-tooltip"
+                          style={{
+                            position: 'absolute',
+                            top: '110%',
+                            left: 0,
+                            zIndex: 20,
+                            background: 'var(--tooltip-bg)',
+                            border: '1px solid var(--tooltip-border)',
+                            borderRadius: 8,
+                            padding: '8px 10px',
+                            fontSize: 12,
+                            width: 200,
+                            lineHeight: 1.4,
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                          }}
+                        >
+                          {r.reason}
+                          {(r.from_content || r.from_cf) && (
+                            <div style={{ marginTop: 4, fontSize: 10, color: 'var(--text-muted)' }}>
+                              {r.from_content && r.from_cf
+                                ? '가격 유사도 + 사용자 패턴 기반'
+                                : r.from_content
+                                ? '가격 유사도 기반'
+                                : '사용자 관심등록 패턴 기반'}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
