@@ -8,12 +8,17 @@
   - CF는 User-Based가 아닌 Item-Based를 사용 — 유저 수가 적은 초기 서비스에서
     "종목 간 동시 관심등록 패턴"이 "유저 간 취향 유사도"보다 더 안정적으로 계산됨
 
+후보군 확장:
+  - KRX에서 받은 kospi200.csv / kosdaq150.csv를 유니버스로 사용해
+    후보군을 6~12개 수준에서 최대 수백 개 수준으로 확장함.
+
 환경변수:
   USE_MOCK_DATA=false  실제 Firestore 상호작용 데이터 + yfinance 상관관계 사용
 """
 import os
 import pandas as pd
 import numpy as np
+from pathlib import Path
 
 USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
 
@@ -23,6 +28,82 @@ CF_MIN_INTERACTIONS = 100
 CF_MAX_WEIGHT_AT = 1000
 CF_MAX_WEIGHT = 0.7  # 데이터가 아무리 많아도 컨텐츠 기반을 완전히 배제하지는 않음
 
+_DATA_DIR = Path(__file__).parent / "data"
+_UNIVERSE_DF = None  # 최초 호출 시 1회 로드 후 캐시
+
+# 파일명 -> yfinance 티커 접미사 매핑
+_UNIVERSE_FILES = {
+    "kospi200.csv": ".KS",
+    "kosdaq150.csv": ".KQ",
+}
+
+
+def _load_universe() -> pd.DataFrame:
+    """
+    KRX에서 다운로드한 원본 CSV(kospi200.csv, kosdaq150.csv)를 읽어
+    ticker/name 형태로 정규화한 종목 유니버스를 반환한다 (1회 캐시).
+
+    원본 컬럼: 종목코드, 종목명, 종가, 대비, 등락률, 상장시가총액 (CP949 인코딩)
+    필요한 건 종목코드/종목명뿐이라 나머지는 버림.
+    """
+    global _UNIVERSE_DF
+    if _UNIVERSE_DF is not None:
+        return _UNIVERSE_DF
+
+    frames = []
+    for fname, suffix in _UNIVERSE_FILES.items():
+        fpath = _DATA_DIR / fname
+        if not fpath.exists():
+            continue
+        try:
+            raw = pd.read_csv(fpath, encoding="cp949", dtype={"종목코드": str})
+        except Exception as e:
+            print(f"⚠️ {fname} 로드 실패: {e}")
+            continue
+
+        if "종목코드" not in raw.columns or "종목명" not in raw.columns:
+            print(f"⚠️ {fname}에 종목코드/종목명 컬럼이 없습니다. 컬럼: {list(raw.columns)}")
+            continue
+
+        df = raw[["종목코드", "종목명"]].copy()
+        df.columns = ["code", "name"]
+        df["code"] = df["code"].astype(str).str.zfill(6)
+        # 6자리 순수 숫자 코드만 사용 (ETN/우선주 등 특수 코드는 yfinance 조회가 안 되므로 제외)
+        df = df[df["code"].str.match(r"^\d{6}$")]
+        df["ticker"] = df["code"] + suffix
+        frames.append(df[["ticker", "name"]])
+
+    if not frames:
+        print("⚠️ kospi200.csv / kosdaq150.csv 를 찾을 수 없어 후보군 확장 없이 동작합니다.")
+        _UNIVERSE_DF = pd.DataFrame(columns=["ticker", "name"])
+    else:
+        _UNIVERSE_DF = pd.concat(frames, ignore_index=True).drop_duplicates(subset="ticker")
+
+    return _UNIVERSE_DF
+
+
+def get_expanded_candidate_pool(
+    ticker: str, sector_kr: str = "", max_candidates: int = 40, seed: int = 42
+) -> list[str]:
+    """
+    CSV로 준비한 코스피200/코스닥150 전체 종목 중에서 후보군을 뽑는다.
+    - 무작위로 섞어서 후보군 다양성도 확보 (섹터 필터링은 main.py에서 이미 후처리)
+    - CSV가 없으면 빈 리스트를 반환해서 main.py가 기존 방식(야후+섹터폴백)으로
+      자동 대체하도록 함 (안전한 폴백 유지)
+    """
+    df = _load_universe()
+    if df.empty:
+        return []
+
+    pool = df[df["ticker"] != ticker]["ticker"].tolist()
+
+    if len(pool) <= max_candidates:
+        return pool
+
+    import random
+    rng = random.Random(seed)
+    return rng.sample(pool, max_candidates)
+
 
 # -----------------------------------------------------------------------------
 # 1. 이벤트 로깅 — 관심등록/분석 클릭 등을 Firestore에 기록 (CF의 원재료)
@@ -31,7 +112,7 @@ CF_MAX_WEIGHT = 0.7  # 데이터가 아무리 많아도 컨텐츠 기반을 완�
 def log_user_event(uid: str, ticker: str, event_type: str) -> None:
     """
     사용자 행동을 기록한다. main.py의 /api/events 엔드포인트에서 호출됨.
-    event_type 예: "favorite_add", "favorite_remove", "analyze_click"
+    event_type 예: "favorite_add", "favorite_remove", "related_click", "analyze_click"
     """
     if USE_MOCK:
         print(f"[MOCK] 이벤트 기록 스킵: {uid} / {ticker} / {event_type}")
@@ -75,7 +156,6 @@ def _get_favorites_matrix() -> pd.DataFrame | None:
     add_events = db.collection("user_events").where("event_type", "==", "favorite_add").stream()
     remove_events = db.collection("user_events").where("event_type", "==", "favorite_remove").stream()
 
-    # 현재 관심등록 상태만 남기기 위해 add/remove를 시간순으로 병합
     records = []
     for doc in add_events:
         d = doc.to_dict()
@@ -89,9 +169,8 @@ def _get_favorites_matrix() -> pd.DataFrame | None:
 
     df = pd.DataFrame(records, columns=["uid", "ticker", "timestamp", "value"])
     df = df.sort_values("timestamp")
-    # 같은 (uid, ticker) 쌍은 가장 최근 상태만 유지
     latest = df.groupby(["uid", "ticker"]).last().reset_index()
-    latest = latest[latest["value"] == 1]  # 현재 관심등록된 것만
+    latest = latest[latest["value"] == 1]
 
     if latest.empty:
         return None
@@ -131,7 +210,7 @@ def _get_content_based_recommendations(
             cand_returns = cand_hist.pct_change().dropna()
 
             aligned = pd.concat([base_returns, cand_returns], axis=1, join="inner").dropna()
-            if len(aligned) < 20:  # 최소 20거래일 겹쳐야 신뢰할 만한 상관계수
+            if len(aligned) < 20:
                 continue
 
             corr = aligned.iloc[:, 0].corr(aligned.iloc[:, 1])
@@ -161,7 +240,7 @@ def _get_cf_recommendations(ticker: str, top_k: int = 10) -> list[dict]:
 
     from sklearn.metrics.pairwise import cosine_similarity
 
-    item_matrix = matrix.T  # 종목 x 유저로 전치
+    item_matrix = matrix.T
     similarities = cosine_similarity(item_matrix)
     sim_df = pd.DataFrame(similarities, index=item_matrix.index, columns=item_matrix.index)
 
@@ -169,7 +248,7 @@ def _get_cf_recommendations(ticker: str, top_k: int = 10) -> list[dict]:
         return []
 
     scores = sim_df[ticker].drop(ticker, errors="ignore").sort_values(ascending=False)
-    scores = scores[scores > 0]  # 유사도 0 이하는 의미 없는 추천이므로 제외
+    scores = scores[scores > 0]
 
     return [
         {"ticker": t, "score": round(float(s), 3), "source": "cf"}
@@ -232,16 +311,11 @@ def get_hybrid_recommendations(
     """
     하이브리드 관심종목 추천의 진입점.
 
-    Args:
-        ticker: 기준 종목
-        candidate_tickers: 추천 후보 풀 (main.py의 섹터 폴백/야후 추천 결과 등 재사용)
-        top_k: 최종 추천 개수
-
     Returns:
         {
             "results": [{"ticker": ..., "score": ..., "from_cf": bool, "from_content": bool}, ...],
-            "cf_weight": float,          # 이번 응답에서 CF가 반영된 비중 (0이면 콜드스타트 상태)
-            "interaction_count": int,    # 참고용 — 현재까지 쌓인 상호작용 수
+            "cf_weight": float,
+            "interaction_count": int,
         }
     """
     interaction_count = _get_interaction_count()
@@ -253,7 +327,6 @@ def get_hybrid_recommendations(
     if cf_weight > 0:
         cf_recs = _get_cf_recommendations(ticker)
         if not cf_recs:
-            # CF 데이터가 이 종목에 한해 부족하면 컨텐츠 기반으로 자동 대체
             cf_weight = 0.0
 
     if not content_recs and not cf_recs:
@@ -273,12 +346,16 @@ def get_hybrid_recommendations(
 # -----------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    universe = _load_universe()
+    print(f"유니버스 로드 완료: {len(universe)}개 종목\n")
+
     TEST_TICKER = "005930.KS"
-    TEST_CANDIDATES = ["000660.KS", "005380.KS", "035420.KS", "035720.KS", "051910.KS"]
+    TEST_CANDIDATES = get_expanded_candidate_pool(TEST_TICKER)
 
     result = get_hybrid_recommendations(TEST_TICKER, TEST_CANDIDATES)
 
     print(f"기준 종목: {TEST_TICKER}")
+    print(f"후보군 크기: {len(TEST_CANDIDATES)}")
     print(f"CF 비중: {result['cf_weight']} (상호작용 {result['interaction_count']}건)\n")
     for r in result["results"]:
         source = []

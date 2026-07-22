@@ -4,14 +4,19 @@ import NewsAgentModal from './NewsAgentModal';
 function AiReportCard({ stock, analysis, isLoading }) {
   const [showFinancial, setShowFinancial] = useState(false);
 
-  const reportText = analysis ? null : stock.aiReport;
+  const reportText = analysis ? null : stock?.aiReport;
   const warningText = analysis
-    ? (analysis.warnings.length > 0 ? analysis.warnings.join(' / ') : null)
-    : stock.aiWarning;
+    ? (analysis.warnings && analysis.warnings.length > 0 ? analysis.warnings.join(' / ') : null)
+    : stock?.aiWarning;
 
+  // 7일차(마지막) 예측 데이터 가져오기 (안전한 예외 처리)
   const finalDayPrediction = analysis?.prediction?.length
     ? analysis.prediction[analysis.prediction.length - 1]
     : null;
+
+  const predictedPrice = finalDayPrediction
+    ? (finalDayPrediction.future_price ?? finalDayPrediction.price ?? 0)
+    : 0;
 
   const financial = analysis?.financial;
 
@@ -76,12 +81,12 @@ function AiReportCard({ stock, analysis, isLoading }) {
           <>
             <p className="report-text">
               {analysis && finalDayPrediction
-                ? `${stock.name}에 대해 ${analysis.news.length}건의 뉴스를 분석했습니다.
-                   긍정 감성 ${Math.round(analysis.sentiment.positive * 100)}%, 부정 ${Math.round(analysis.sentiment.negative * 100)}%로
-                   ${analysis.sentiment.positive > analysis.sentiment.negative ? '긍정적' : '부정적'} 방향성이 우세합니다.
-                   7일 후 예측가는 ${stock.code?.includes('.KS')
-                     ? `${finalDayPrediction.future_price.toLocaleString()}원`
-                     : `$${finalDayPrediction.future_price}`}으로 예측됩니다.`
+                ? `${stock?.name || '해당 종목'}에 대해 ${analysis.news?.length || 0}건의 뉴스를 분석했습니다.
+                   긍정 감성 ${Math.round((analysis.sentiment?.positive || 0) * 100)}%, 부정 ${Math.round((analysis.sentiment?.negative || 0) * 100)}%로
+                   ${(analysis.sentiment?.positive || 0) > (analysis.sentiment?.negative || 0) ? '긍정적' : '부정적'} 방향성이 우세합니다.
+                   7일 후 예측가는 ${stock?.code?.includes('.KS')
+                     ? `${predictedPrice.toLocaleString()}원`
+                     : `$${predictedPrice}`}으로 예측됩니다.`
                 : reportText}
             </p>
 

@@ -27,8 +27,14 @@ def review(
 def _get_final_day(prediction_result: PredictionResult) -> Prediction:
     """7일 중 가장 먼 미래(마지막 날) 예측을 대표값으로 사용"""
     if not prediction_result or not prediction_result.prediction:
-        # 리스트가 비어있는 경우 Fallback
-        return Prediction(day=7, future_price=0.0, lower=0.0, upper=0.0, confidence_score=50)
+        # 리스트가 비어있는 경우 Fallback (필수 필드인 day 포함)
+        return Prediction(
+            day=7, 
+            future_price=0.0, 
+            lower=0.0, 
+            upper=0.0, 
+            confidence_score=50
+        )
     return prediction_result.prediction[-1]
 
 
@@ -66,7 +72,7 @@ def _collect_warnings(
     # ② Critic 자체 검증 — 감성 방향과 예측 방향(7일 후 기준)이 모순되는지 확인
     final_day = _get_final_day(prediction_result)
     
-    if sentiment_result and sentiment_result.sentiment and data_result:
+    if sentiment_result and getattr(sentiment_result, "sentiment", None) and data_result:
         sentiment_direction = sentiment_result.sentiment.positive - sentiment_result.sentiment.negative
         current_price = getattr(data_result, "price", 0.0) or 0.0
         
@@ -88,11 +94,11 @@ def _calc_confidence(
 ) -> int:
     """0~100 종합 신뢰도 점수 — 뉴스량 / 감성 명확성 / 예측 변동성 가중 평균"""
     # 1. 뉴스 데이터량 점수 (최대 10개 기준)
-    news_count = len(data_result.news) if data_result and data_result.news else 0
+    news_count = len(data_result.news) if data_result and getattr(data_result, "news", None) else 0
     news_score = min(news_count / 10.0, 1.0) * 100
 
     # 2. 감성 명확성 점수 (|긍정 - 부정|)
-    if sentiment_result and sentiment_result.sentiment:
+    if sentiment_result and getattr(sentiment_result, "sentiment", None):
         sentiment = sentiment_result.sentiment
         sentiment_score = abs(sentiment.positive - sentiment.negative) * 100
     else:

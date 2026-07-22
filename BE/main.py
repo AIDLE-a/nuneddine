@@ -1,11 +1,12 @@
 """
 통합 FastAPI 서버
-- /api/login  : Firebase 구글 로그인 검증 (담당: 채민/로그인팀)
-- /api/analyze: 주식 분석 오케스트레이터 (담당: 희선)
-               뉴스 수집(유빈) → 감성분석(연우) → 예측(희선) → Critic(희선)
-- /api/related: 연관 종목 추천 — 하이브리드(컨텐츠기반+CF) 1순위, 야후/섹터 폴백
-               각 추천 항목에 reason(추천 이유) 필드 포함 — 프론트 "?" 버튼용
-- /api/events : 사용자 행동 로깅 (관심등록, 분석클릭, 연관종목 클릭 등 — CF 데이터 축적용)
+- /api/login    : Firebase 구글 로그인 검증 (담당: 채민/로그인팀)
+- /api/analyze  : 주식 분석 오케스트레이터 (담당: 희선)
+                 뉴스 수집(유빈) → 감성분석(연우) → 예측(희선) → Critic(희선)
+- /api/related  : 연관 종목 추천 — 하이브리드(컨텐츠기반+CF) 1순위, 야후/섹터 폴백
+                 각 추천 항목에 reason(추천 이유) 필드 포함 — 프론트 "?" 버튼용
+- /api/events   : 사용자 행동 로깅 (관심등록, 분석클릭, 연관종목 클릭 등 — CF 데이터 축적용)
+- /api/evaluate : 추천시스템 오프라인 평가 실행 (담당: 희선)
 
 실행: uvicorn main:app --reload
 """
@@ -24,8 +25,8 @@ import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth, firestore as firebase_firestore
 
 from pydantic import BaseModel
-# 팀 합의 스키마 파일에서 필요한 클래스들을 로드합니다.
-from schemas import StockAnalysisResponse
+# ★ 팀 합의 스키마 파일에서 필요한 클래스들을 로드합니다.
+from schemas import StockAnalysisResponse, SentimentResult, Sentiment
 
 # ----------------------------------------------------
 # 실제 BE 폴더 내 파일명으로 임포트 연결
@@ -35,6 +36,9 @@ import yeonwoo_sentiment as sentiment_service # 2단계: 감성 분석 & XAI
 import heesun_forecast as prediction_service  # 3단계: Prophet 시계열 예측
 import heesun_recommend                      # 하이브리드 추천 에이전트
 import critic                                # 4단계: Critic 모순 검증
+
+# ★ 파일명(heesun_recommend_eval)에 맞춰 import 경로 수정
+from heesun_recommend_eval import run_full_evaluation
 
 app = FastAPI(title="주식 리서치 통합 서버")
 
@@ -96,7 +100,7 @@ def health():
     return {"status": "ok"}
 
 
-# 섹터별 한국 종목 폴백 목록 (하이브리드 추천도 결과 없고, 야후 추천 API도 결과 없을 때 최후 사용)
+# 섹터별 한국 종목 폴백 목록
 _SECTOR_FALLBACK = {
     "엔터·미디어": [
         ("352820.KS", "HYBE"),
@@ -190,19 +194,7 @@ _KR_NAME_MAP = {
 
 @app.get("/api/related")
 def related_stocks(ticker: str):
-    """
-    연관 종목 추천.
-
-    우선순위:
-      1차) 하이브리드 추천 시스템 (heesun_recommend) — 컨텐츠기반(가격상관관계) + CF(관심등록 패턴)
-           candidate pool은 섹터 폴백 목록 + 야후 추천 API 결과를 합쳐서 구성
-      2차) 야후 파이낸스 추천 API 단독 결과 (하이브리드가 비어있을 때)
-      3차) 섹터 기반 하드코딩 목록 (그마저도 없을 때 최후 안전장치)
-
-    응답의 각 항목에는 reason(추천 이유 텍스트), from_content, from_cf가 포함됨
-    → 프론트 "?" 버튼 클릭 시 이 reason을 그대로 보여주면 됨.
-    응답의 cf_weight: 이번 추천에 CF가 얼마나 반영됐는지 (0이면 콜드스타트 상태 = 컨텐츠 기반만 사용됨)
-    """
+    """연관 종목 추천"""
     import yfinance as _yf
     from concurrent.futures import ThreadPoolExecutor
 
@@ -225,7 +217,6 @@ def related_stocks(ticker: str):
             base_sector_en = ""
             base_sector_kr = ""
 
-        # ── 야후 추천 API 결과 미리 받아두기 (1차 candidate pool + 2차 폴백에 재사용) ──
         yahoo_symbols = []
         try:
             url = f"https://query2.finance.yahoo.com/v6/finance/recommendationsbysymbol/{ticker}"
@@ -235,11 +226,13 @@ def related_stocks(ticker: str):
         except Exception:
             pass
 
-        # ── 1차: 하이브리드 추천 시스템 ──
-        candidate_pool = list(yahoo_symbols)
-        if base_sector_kr:
-            candidate_pool.extend([t for t, _ in _SECTOR_FALLBACK.get(base_sector_kr, [])])
-        candidate_pool = list(set(t for t in candidate_pool if t and t != ticker))
+        candidate_pool = heesun_recommend.get_expanded_candidate_pool(ticker, base_sector_kr)
+
+        if not candidate_pool:
+            candidate_pool = list(yahoo_symbols)
+            if base_sector_kr:
+                candidate_pool.extend([t for t, _ in _SECTOR_FALLBACK.get(base_sector_kr, [])])
+            candidate_pool = list(set(t for t in candidate_pool if t and t != ticker))
 
         if candidate_pool:
             try:
@@ -274,7 +267,6 @@ def related_stocks(ticker: str):
                         "cf_weight": hybrid_result["cf_weight"],
                     }
 
-        # ── 2차 폴백: 야후 추천 API 단독 (섹터 필터링) ──
         if yahoo_symbols:
             with ThreadPoolExecutor(max_workers=8) as ex:
                 info_map = dict(ex.map(_get_info, yahoo_symbols))
@@ -293,7 +285,6 @@ def related_stocks(ticker: str):
             if results:
                 return {"results": results[:6], "cf_weight": 0}
 
-        # ── 3차 폴백: 섹터 기반 하드코딩 목록 ──
         if base_sector_kr:
             fallback = _SECTOR_FALLBACK.get(base_sector_kr, [])
             results = [
@@ -487,15 +478,23 @@ def get_tamagotchi(ticker: str):
 # ── 사용자 행동 로깅 (관심종목 추가/해제, 연관종목 클릭 등 — CF 추천 데이터 축적용) ──
 @app.post("/api/events")
 async def log_event(uid: str, ticker: str, event_type: str):
-    """
-    event_type 예시:
-      - "favorite_add"    : 관심종목 등록 (☆ 클릭)
-      - "favorite_remove" : 관심종목 해제
-      - "related_click"   : 연관 종목 칩 클릭
-      - "analyze_click"   : 분석 시작 클릭
-    """
     heesun_recommend.log_user_event(uid, ticker, event_type)
     return {"status": "logged"}
+
+
+# ── 오프라인 평가 실행 API 엔드포인트 ──
+@app.get("/api/evaluate")
+def evaluate_recommendation():
+    """
+    연관 종목 추천 오프라인 평가 지표(Coverage, Diversity, Novelty, Accuracy, Speed) 측정.
+    브라우저나 Postman에서 GET /api/evaluate 호출 시 바로 평가 실행.
+    """
+    try:
+        test_tickers = ["005930.KS", "000660.KS", "035420.KS"]
+        report = run_full_evaluation(test_tickers)
+        return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"평가 실행 중 에러 발생: {str(e)}")
 
 
 # ── 채민 / 로그인팀 담당 ──
@@ -523,18 +522,30 @@ async def login_check(authorization: str = Header(None)):
 @app.get("/api/analyze", response_model=StockAnalysisResponse)
 def analyze(ticker: str = "005930.KS"):
     try:
-        # 1단계: 뉴스 수집 및 주가 기본 데이터 수집 (yubin_stock.py 사용)
+        # 1단계: 뉴스 수집 및 주가/거래량 기본 데이터 수집
         data_result = data_service.get_stock_data(ticker)
-        
-        # 2단계: 뉴스 감성 분석 및 XAI (yeonwoo_sentiment.py 사용)
-        sentiment_result = sentiment_service.analyze(data_result.news)
-        
-        # 3단계: Prophet 기반 7일 주가 예측 (heesun_forecast.py 사용)
+
+        # 2단계: 뉴스 감성 분석 및 XAI
+        try:
+            target_news = data_result.news[:15] if data_result.news else []
+            sentiment_result = sentiment_service.analyze(target_news)
+        except Exception as e:
+            print(f"⚠️ 감성 분석 실패 (Fallback 중립 처리 적용): {e}")
+            sentiment_result = SentimentResult(
+                sentiment=Sentiment(positive=0.5, negative=0.5, neutral=0.0),
+                explanation="감성 분석 처리 중 오류가 발생하여 기본 중립값이 설정되었습니다.",
+                trend="중립",
+                top_keywords=[],
+                volatility=0.0,
+                sentiment_warning="감성 분석 프로세스 경고"
+            )
+
+        # 3단계: Prophet 기반 7일 주가 예측 및 거래량 분석
         prediction_result = prediction_service.predict(
             ticker, data_result.price, sentiment_result.sentiment
         )
-        
-        # 4단계: Critic 모순 검증 (critic.py 사용)
+
+        # 4단계: Critic 모순 검증
         warnings, confidence_score = critic.review(
             data_result, sentiment_result, prediction_result
         )
@@ -543,6 +554,7 @@ def analyze(ticker: str = "005930.KS"):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+    # 계약서상 StockAnalysisResponse 스키마에 맞춰 완벽히 데이터를 병합합니다.
     response = StockAnalysisResponse(
         ticker=data_result.ticker,
         price=data_result.price,
@@ -579,4 +591,34 @@ def analyze(ticker: str = "005930.KS"):
 
 if __name__ == "__main__":
     import uvicorn
+    import warnings
+    
+    # Firestore 경고 메시지 숨기기 (터미널 깔끔하게 유지)
+    warnings.filterwarnings("ignore", category=UserWarning, module="google.cloud.firestore")
+
+    print("\n" + "=" * 60)
+    print("🚀 [희선] 연관 종목 추천시스템 오프라인 평가를 시작합니다...")
+    print("=" * 60)
+    
+    try:
+        from heesun_recommend_eval import run_full_evaluation
+        
+        TEST_TICKERS = ["005930.KS", "000660.KS", "035420.KS"]
+        eval_report = run_full_evaluation(TEST_TICKERS)
+        
+        print("\n📊 [추천시스템 종합 평가 리포트]")
+        print(f"• 전체 Coverage: {eval_report.get('coverage')}")
+        
+        for ticker, metrics in eval_report.get("per_ticker", {}).items():
+            print(f"\n── 종목: {ticker} ──")
+            print(f"  • Diversity     (다양성)   : {metrics.get('diversity')}")
+            print(f"  • Novelty       (참신성)   : {metrics.get('novelty')}")
+            print(f"  • Accuracy proxy(정확성근사): {metrics.get('accuracy_proxy')}")
+            print(f"  • Speed         (생성속도) : {metrics.get('speed')}")
+            
+        print("\n" + "=" * 60 + "\n")
+    except Exception as e:
+        print(f"⚠️ 오프라인 평가 실행 중 에러 발생: {e}\n")
+
+    # FastAPI 서버 실행
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
