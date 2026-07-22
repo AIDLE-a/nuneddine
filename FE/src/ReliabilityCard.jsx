@@ -8,11 +8,18 @@ function ReliabilityCard({ stock, analysis, isLoading }) {
     const pos = analysis.sentiment.positive;
     const neg = analysis.sentiment.negative;
     const newsRatio = Math.min(analysis.news.length / 10, 1);
-    const spread = (analysis.prediction.upper - analysis.prediction.lower) / analysis.prediction.future_price;
+
+    // prediction은 이제 1일~7일 단위 배열 — 가장 불확실한(spread 큰) 날 기준으로 계산
+    const predictionDays = analysis.prediction ?? [];
+    const worstSpreadRatio = predictionDays.length > 0
+      ? Math.max(
+          ...predictionDays.map(p => (p.upper - p.lower) / p.future_price)
+        )
+      : 0;
 
     infoScore = Math.round(newsRatio * 100);
     sentimentScore = Math.round(Math.abs(pos - neg) * 100);
-    predictScore = Math.round(Math.max(0, 100 - spread * 500));
+    predictScore = Math.round(Math.max(0, 100 - worstSpreadRatio * 500));
     reportScore = score;
   } else {
     score = 68;

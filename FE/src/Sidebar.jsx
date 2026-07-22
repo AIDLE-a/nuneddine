@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { signInWithPopup, signInWithRedirect, signOut } from 'firebase/auth';
 import { auth, provider } from './firebase.js';
 
-function Sidebar({ user, setUser, setFavorites, setHistory, isDarkMode, setIsDarkMode }) {
+function Sidebar({ user, setUser, setFavorites, setHistory, isDarkMode, setIsDarkMode, isOpen, onClose }) {
   const navigate = useNavigate();
 
   const handleLogin = async () => {
@@ -30,45 +30,34 @@ function Sidebar({ user, setUser, setFavorites, setHistory, isDarkMode, setIsDar
     ? user.displayName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : null;
 
+  const handleNavClick = () => { if (onClose) onClose(); };
+
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${isOpen ? ' open' : ''}`}>
       <div className="sidebar-logo">
-        <svg width="22" height="22" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style={{flexShrink:0}}>
-          <rect width="32" height="32" rx="9" fill="#0F172A"/>
-          <line x1="8" y1="7" x2="8" y2="10" stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round"/>
-          <rect x="5.5" y="10" width="5" height="7" rx="1" fill="#EF4444"/>
-          <line x1="8" y1="17" x2="8" y2="21" stroke="#EF4444" strokeWidth="1.5" strokeLinecap="round"/>
-          <line x1="16" y1="5" x2="16" y2="9" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round"/>
-          <rect x="13.5" y="9" width="5" height="8" rx="1" fill="#22C55E"/>
-          <line x1="16" y1="17" x2="16" y2="20" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round"/>
-          <line x1="24" y1="8" x2="24" y2="12" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round"/>
-          <rect x="21.5" y="12" width="5" height="6" rx="1" fill="#22C55E"/>
-          <line x1="24" y1="18" x2="24" y2="22" stroke="#22C55E" strokeWidth="1.5" strokeLinecap="round"/>
-          <polyline points="5,26 10,24 16,25 22,22 27,23" fill="none" stroke="#FACC15" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-        <span>Nune<em>DD</em>ine</span>
+        <span>Nune<span className="logo-eye">D</span><span className="logo-eye">D</span>ine</span>
       </div>
 
       <nav className="sidebar-nav">
-        <NavLink to="/" end className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
+        <NavLink to="/" end onClick={handleNavClick} className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           분석
         </NavLink>
-        <NavLink to="/community" className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
+        <NavLink to="/community" onClick={handleNavClick} className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
           커뮤니티
         </NavLink>
-        <NavLink to="/ranking" className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
+        <NavLink to="/ranking" onClick={handleNavClick} className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
           인기 종목
         </NavLink>
         {user && (
           <>
-            <NavLink to="/favorites" className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
+            <NavLink to="/favorites" onClick={handleNavClick} className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
               관심 종목
             </NavLink>
-            <NavLink to="/history" className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
+            <NavLink to="/history" onClick={handleNavClick} className={({ isActive }) => `sidebar-nav-item${isActive ? ' active' : ''}`}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               분석 기록
             </NavLink>

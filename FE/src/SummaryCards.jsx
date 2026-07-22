@@ -47,11 +47,6 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
     const { price, prediction, sentiment, news } = analysis;
     const currency = getStockCurrency(stock, analysis);
     const formattedPrice = formatPrice(price, currency);
-<<<<<<< Updated upstream
-    const formattedPredict = formatPrice(prediction.future_price, currency);
-    const formattedLower = formatPrice(prediction.lower, currency);
-    const formattedUpper = formatPrice(prediction.upper, currency);
-=======
 
     // ── 어제 대비 오늘 변동 계산 ──
     const priceHistory = analysis.price_history || [];
@@ -67,14 +62,13 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
       : stock.change;
     const isPositive = priceChange != null ? priceChange >= 0 : stock.isPositive;
 
-    // 예측가
+    // 예측가 (배열의 마지막 7일차 대표값 추출)
     const finalDayPrediction = prediction?.length ? prediction[prediction.length - 1] : null;
     const formattedPredict = finalDayPrediction ? formatPrice(finalDayPrediction.future_price, currency) : '-';
     const formattedLower = finalDayPrediction ? formatPrice(finalDayPrediction.lower, currency) : '-';
     const formattedUpper = finalDayPrediction ? formatPrice(finalDayPrediction.upper, currency) : '-';
 
     // 감성
->>>>>>> Stashed changes
     const posStr = Math.round(sentiment.positive * 100);
     const negStr = Math.round(sentiment.negative * 100);
     const sentimentLabel = posStr > 60 ? '긍정 압도'
