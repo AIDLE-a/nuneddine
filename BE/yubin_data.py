@@ -95,6 +95,17 @@ def get_stock_data(ticker: str) -> StockDataResult:
     info_warning = _check_info_uncertainty(news)
     news_uncertainty = _calc_news_uncertainty(news)
     print(f"📊 뉴스 에이전트 신뢰도: {news_uncertainty.confidence:.2f} | {news_uncertainty.reasoning}")
+
+    # ── 재수집 메커니즘 (신뢰도 낮으면 키워드 확장해서 재시도) ──
+    retry_count = 0
+    if news_uncertainty.confidence < 0.7:
+        print(f"⚠️ 뉴스 신뢰도 낮음 ({news_uncertainty.confidence:.2f}) → 키워드 확장 재수집 시도")
+        expanded_news = _fetch_news(ticker, expanded=True)
+        if len(expanded_news) > len(news):
+            news = expanded_news
+            news_uncertainty = _calc_news_uncertainty(news)
+            retry_count = 1
+            print(f"🔄 재수집 완료: {len(news)}건 → 신뢰도: {news_uncertainty.confidence:.2f}")
     return StockDataResult(
         news_uncertainty=news_uncertainty,
         ticker=ticker,
@@ -254,7 +265,7 @@ def _fetch_google_news(query: str, lang: str = "ko", country: str = "KR") -> lis
         return []
 
 
-def _fetch_news(ticker: str) -> list[NewsItem]:
+def _fetch_news(ticker: str, expanded: bool = False) -> list[NewsItem]:
     """
     4개 소스 수집 + 통합 필터링 알고리즘 적용
     """

@@ -421,7 +421,9 @@ def analyze(ticker: str = "005930.KS"):
         data_result = data_service.get_stock_data(ticker)
         
         # 2단계: 뉴스 감성 분석 및 XAI (yeonwoo_sentiment.py 사용)
-        sentiment_result = sentiment_service.analyze(data_result.news)
+        # ── 에이전트 간 메시지 전달: 뉴스 신뢰도 → 감성 에이전트 ──
+        news_confidence = getattr(getattr(data_result, "news_uncertainty", None), "confidence", 1.0)
+        sentiment_result = sentiment_service.analyze(data_result.news, news_confidence=news_confidence)
         
         # 3단계: Prophet 기반 7일 주가 예측 (heesun_forecast.py 사용)
         prediction_result = prediction_service.predict(
@@ -429,7 +431,7 @@ def analyze(ticker: str = "005930.KS"):
         )
         
         # 4단계: Critic 모순 검증 (critic.py 사용)
-        warnings, confidence_score = critic.review(
+        warnings, confidence_score, llm_report = critic.review(
             data_result, sentiment_result, prediction_result
         )
     except Exception as e:
@@ -461,7 +463,8 @@ def analyze(ticker: str = "005930.KS"):
         news_agent_report=getattr(getattr(data_result, "news_uncertainty", None), "reasoning", None),
         news_agent_confidence=getattr(getattr(data_result, "news_uncertainty", None), "confidence", None),
         news_agent_epistemic=getattr(getattr(data_result, "news_uncertainty", None), "epistemic", None),
-        news_agent_aleatoric=getattr(getattr(data_result, "news_uncertainty", None), "aleatoric", None)
+        news_agent_aleatoric=getattr(getattr(data_result, "news_uncertainty", None), "aleatoric", None),
+        critic_report=llm_report,
     )
 
     bad_fields = _find_bad_floats(response.model_dump())

@@ -170,3 +170,4 @@ class StockAnalysisResponse(BaseModel):
     news_agent_confidence: Optional[float] = None  # 뉴스 에이전트 신뢰도
     news_agent_epistemic: Optional[float] = None   # Epistemic 불확실성
     news_agent_aleatoric: Optional[float] = None   # Aleatoric 불확실성
+    critic_report: Optional[str] = None  # LLM Critic 에이전트 리포트

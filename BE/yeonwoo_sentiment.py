@@ -160,12 +160,17 @@ def _explain(text: str, pipe, top_k: int = 4) -> list[dict]:
     return contribs[:top_k]
 
 
-def analyze(news: list) -> SentimentResult:
+def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
     """메인 함수 — 오케스트레이터가 이 함수만 호출함"""
     if USE_MOCK or not news:
         return _get_mock_sentiment()
 
     pipe = _get_pipe_for(news[0].title)
+
+    # ── 에이전트 간 메시지 수신 ──
+    # 뉴스 에이전트로부터 신뢰도를 받아서 가중치 조정
+    if news_confidence < 0.7:
+        print(f"📨 뉴스 에이전트 메시지 수신: 신뢰도 {news_confidence:.2f} → 감성 가중치 하향 조정")
 
     scored = []
     for n in news[:20]:
@@ -174,13 +179,15 @@ def analyze(news: list) -> SentimentResult:
         score = _score_one(text, pipe)
         tw = _time_weight(n)
         sw = _source_weight(n)
+        # ✨ 뉴스 신뢰도가 낮으면 전체 가중치 낮춤
+        confidence_weight = news_confidence if news_confidence >= 0.7 else news_confidence * 0.8
         scored.append({
             "news": n,
             "text": text,
             "score": score,
             "time_weight": tw,
             "source_weight": sw,
-            "combined_weight": tw * sw,
+            "combined_weight": tw * sw * confidence_weight,
         })
 
     sentiment  = _calc_weighted_sentiment(scored)
