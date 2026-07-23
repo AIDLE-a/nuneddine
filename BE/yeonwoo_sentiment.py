@@ -20,7 +20,7 @@ try:
 except ImportError:
     HAS_LANGDETECT = False
 
-from schemas import Sentiment, WordContribution, SentimentResult, SentimentTrend
+from schemas import Sentiment, WordContribution, SentimentResult, SentimentTrend, AlphaFactor
 
 USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
 
@@ -149,11 +149,13 @@ def _explain(text: str, pipe, top_k: int = 4) -> list[dict]:
             "contribution": round(base - _score_one(mod, pipe), 3)
         })
 
-    # 노이즈 단어 및 숫자만 있는 단어 제외
+    # 노이즈 단어 및 숫자/금액 패턴 제외
     contribs = [
         c for c in contribs
         if c["word"].lower() not in XAI_STOPWORDS
-        and not c["word"].replace("억", "").replace("조", "").replace("만", "").isdigit()
+        and not re.search(r"[0-9]", c["word"])  # 숫자 포함 단어 제외
+        and not c["word"].endswith("은") and not c["word"].endswith("는")
+        and not c["word"].endswith("보다") and not c["word"].endswith("에서")
         and len(c["word"]) > 1
     ]
     contribs.sort(key=lambda x: abs(x["contribution"]), reverse=True)
@@ -192,16 +194,36 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
 
     sentiment  = _calc_weighted_sentiment(scored)
 
-    # ✨ 상위 5개 기사 합쳐서 전체 맥락 기반 XAI 분석
-    top5 = sorted(scored, key=lambda s: s["combined_weight"], reverse=True)[:5]
-    combined_text = " ".join(s["text"] for s in top5)
-    raw_expl   = _explain(combined_text, pipe)
+    # ✨ 가장 신뢰도 높은 기사 1개로 XAI 분석 (합치면 너무 길어서 기여도 왜곡)
+    best = max(scored, key=lambda s: s["combined_weight"])
+    raw_expl   = _explain(best["text"], pipe)
     explanation = [WordContribution(**c) for c in raw_expl]
 
     warnings   = _check_uncertainty(news, sentiment, scored)
     trend      = _calc_trend(scored)
-    keywords   = _extract_keywords(raw_expl)
+    # Attention 기반 핵심 키워드 추출
+    attention_result = _attention_keywords(best["text"], pipe)
+    attention_words = [a["word"] for a in attention_result]
+
+    # KeyBERT로 보완
+    top_scored = sorted(scored, key=lambda s: s["combined_weight"], reverse=True)[:5]
+    kb_texts = [s["text"] for s in top_scored]
+    kb_keywords = _extract_keywords_keybert(kb_texts)
+
+    xai_keywords = _extract_keywords(raw_expl)
+
+    # Attention > KeyBERT > XAI 우선순위
+    if attention_words:
+        keywords = "Attention 키워드: " + ", ".join(attention_words[:5])
+    elif kb_keywords:
+        keywords = "핵심 키워드: " + ", ".join(kb_keywords)
+    else:
+        keywords = xai_keywords
     volatility = _calc_volatility(scored)
+
+    # 퀀트 알파 팩터 계산
+    alpha = _calc_sentiment_alpha(sentiment, scored, volatility or 0)
+    print(f"📈 감성 알파 팩터: {alpha.sentiment_alpha:.3f} ({alpha.signal})")
 
     return SentimentResult(
         sentiment=sentiment,
@@ -210,6 +232,7 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
         trend=trend,
         top_keywords=keywords,
         volatility=volatility,
+        alpha=alpha,
     )
 
 
@@ -245,6 +268,90 @@ def _calc_trend(scored: list[dict]) -> Optional[SentimentTrend]:
         change=change,
     )
 
+
+
+
+def _attention_keywords(text: str, pipe, top_k: int = 5) -> list[dict]:
+    """
+    BERT Attention 기반 핵심 키워드 추출
+    모델이 감성 판단할 때 실제로 집중한 단어를 보여줌
+    """
+    try:
+        import torch
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+        model_name = pipe.model.config._name_or_path
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_name, output_attentions=True
+        )
+        model.eval()
+
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=256)
+        with torch.no_grad():
+            outputs = model(**inputs)
+
+        # 마지막 레이어 attention 평균 (CLS 기준)
+        attentions = outputs.attentions[-1]
+        avg_attention = attentions[0].mean(dim=0)[0].tolist()
+        tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
+
+        # 서브워드 합치기
+        merged = {}
+        current_word = ""
+        current_score = 0.0
+        for token, score in zip(tokens[1:-1], avg_attention[1:-1]):
+            if token.startswith("##"):
+                current_word += token[2:]
+                current_score = max(current_score, score)
+            else:
+                if current_word:
+                    merged[current_word] = current_score
+                current_word = token
+                current_score = score
+        if current_word:
+            merged[current_word] = current_score
+
+        # 조사/어미/불용어 제거
+        ko_stopwords = {
+            "의", "에", "을", "를", "이", "가", "은", "는", "와", "과",
+            "로", "으로", "에서", "까지", "도", "만", "에게", "한", "하",
+            "및", "등", "위해", "통해", "따라", "위한", "대한"
+        }
+
+        import re
+        cleaned = {}
+        for word, score in merged.items():
+            # 조사 제거 (끝에 붙은 조사)
+            clean = re.sub(r"(에서|으로|에게|까지|에서|이나|이고|하고|이며|지만)$", "", word)
+            clean = re.sub(r"(의|에|을|를|이|가|은|는|와|과|로|도|만)$", "", clean)
+            if len(clean) > 1 and clean not in ko_stopwords and not re.search(r"[0-9]", clean):
+                cleaned[clean] = score
+
+        pairs = sorted(cleaned.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        return [{"word": w, "attention_score": round(s, 4)} for w, s in pairs]
+
+    except Exception as e:
+        print(f"⚠️ Attention 분석 실패: {e}")
+        return []
+
+def _extract_keywords_keybert(texts: list[str], top_k: int = 5) -> list[str]:
+    """KeyBERT로 전체 뉴스에서 핵심 키워드 추출"""
+    try:
+        from keybert import KeyBERT
+        kw_model = KeyBERT()
+        combined = " ".join(texts[:10])  # 상위 10개 기사
+        keywords = kw_model.extract_keywords(
+            combined,
+            keyphrase_ngram_range=(1, 2),
+            stop_words=None,
+            top_n=top_k,
+            diversity=0.5
+        )
+        return [kw for kw, score in keywords if score > 0.2]
+    except Exception as e:
+        print(f"⚠️ KeyBERT 실패: {e}")
+        return []
 
 def _extract_keywords(explanation: list[dict]) -> Optional[str]:
     """XAI 기여도 기반 핵심 키워드 추출"""
@@ -295,6 +402,34 @@ def _check_uncertainty(news: list, sentiment: Sentiment, scored: list[dict]) -> 
 
     return warnings
 
+
+
+def _calc_sentiment_alpha(sentiment: Sentiment, scored: list[dict], volatility: float) -> AlphaFactor:
+    """
+    퀀트 펀드 방식 감성 알파 팩터 계산
+    감성 에이전트가 생성하는 알파 신호
+    """
+    # 감성 알파 (-1 ~ +1)
+    sentiment_alpha = round(sentiment.positive - sentiment.negative, 3)
+
+    # 변동성 보정 (변동성 높으면 신호 약화)
+    vol_penalty = min(volatility * 2, 0.5) if volatility else 0
+    adjusted_alpha = sentiment_alpha * (1 - vol_penalty)
+
+    # 신호 강도
+    abs_alpha = abs(adjusted_alpha)
+    if abs_alpha >= 0.4:
+        signal = "강한매수" if adjusted_alpha > 0 else "강한매도"
+    elif abs_alpha >= 0.2:
+        signal = "매수" if adjusted_alpha > 0 else "매도"
+    else:
+        signal = "중립"
+
+    return AlphaFactor(
+        sentiment_alpha=round(adjusted_alpha, 3),
+        composite_alpha=round(adjusted_alpha, 3),
+        signal=signal,
+    )
 
 def _get_mock_sentiment() -> SentimentResult:
     return SentimentResult(

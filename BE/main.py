@@ -22,7 +22,7 @@ from firebase_admin import credentials, auth as firebase_auth, firestore as fire
 
 from pydantic import BaseModel
 # 팀 합의 스키마 파일에서 필요한 클래스들을 로드합니다.
-from schemas import StockAnalysisResponse
+from schemas import StockAnalysisResponse, SentimentResult, Sentiment
 
 # ----------------------------------------------------
 # 실제 BE 폴더 내 파일명으로 임포트 연결
@@ -30,7 +30,10 @@ from schemas import StockAnalysisResponse
 import yubin_data as data_service            # 1단계: 뉴스 및 주가 수집
 import yeonwoo_sentiment as sentiment_service # 2단계: 감성 분석 & XAI
 import heesun_forecast as prediction_service  # 3단계: Prophet 시계열 예측
+import heesun_recommend                      # 하이브리드 추천 에이전트
 import critic                                # 4단계: Critic 모순 검증
+
+from heesun_recommend_eval import run_full_evaluation
 
 app = FastAPI(title="주식 리서치 통합 서버")
 
@@ -465,6 +468,15 @@ def analyze(ticker: str = "005930.KS"):
         news_agent_epistemic=getattr(getattr(data_result, "news_uncertainty", None), "epistemic", None),
         news_agent_aleatoric=getattr(getattr(data_result, "news_uncertainty", None), "aleatoric", None),
         critic_report=llm_report,
+        flow_alpha=getattr(data_result, "flow_alpha", 0.0),
+        financial_alpha=getattr(data_result, "financial_alpha", 0.0),
+        momentum_alpha=getattr(data_result, "momentum_alpha", 0.0),
+        composite_alpha=round(
+            getattr(data_result, "flow_alpha", 0.0) * 0.30 +
+            getattr(data_result, "financial_alpha", 0.0) * 0.20 +
+            getattr(data_result, "momentum_alpha", 0.0) * 0.20,
+            3
+        ),
     )
 
     bad_fields = _find_bad_floats(response.model_dump())

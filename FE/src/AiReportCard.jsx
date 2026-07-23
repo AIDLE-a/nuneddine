@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import NewsAgentModal from './NewsAgentModal';
+import DetailReportModal from './DetailReportModal';
+
 
 function AiReportCard({ stock, analysis, isLoading }) {
   const [showFinancial, setShowFinancial] = useState(false);
@@ -118,6 +120,7 @@ function AiReportCard({ stock, analysis, isLoading }) {
               <button className="btn-secondary">경고 문구 상세 ↗</button>
               <button className="btn-secondary">과거 비교 ↗</button>
               <button className="btn-secondary">내보내기 ↗</button>
+              <DetailReportModal stock={stock} analysis={analysis} />
               {financial && (
                 <button
                   className="btn-secondary"

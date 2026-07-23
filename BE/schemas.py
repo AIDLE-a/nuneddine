@@ -37,6 +37,11 @@ class FinancialData(BaseModel):
     earnings_growth: Optional[float] = None # 영업이익 성장률
     operating_margin: Optional[float] = None # 영업이익률
     current_ratio: Optional[float] = None   # 유동비율 (높을수록 안정적)
+    target_mean_price: Optional[float] = None  # 증권사 평균 목표주가
+    target_high_price: Optional[float] = None  # 증권사 최고 목표주가
+    target_low_price: Optional[float] = None   # 증권사 최저 목표주가
+    analyst_count: Optional[int] = None        # 분석 애널리스트 수
+    recommendation: Optional[str] = None       # 투자의견 (strong_buy/buy/hold/sell)
 
 
 class InvestorData(BaseModel):
@@ -88,6 +93,9 @@ class StockDataResult(BaseModel):
     financial: Optional[FinancialData] = None
     realtime: List[RealtimePrice] = []
     news_uncertainty: Optional[UncertaintyResult] = None  # 뉴스 에이전트 불확실성
+    flow_alpha: float = 0.0       # 수급 알파 팩터
+    financial_alpha: float = 0.0  # 재무 알파 팩터
+    momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
     news: List[NewsItem]
     info_warning: Optional[str] = None
 
@@ -112,6 +120,15 @@ class SentimentTrend(BaseModel):
     change: float
 
 
+class AlphaFactor(BaseModel):
+    """퀀트 펀드 방식 알파 팩터 — 각 에이전트가 생성"""
+    sentiment_alpha: float = 0.0    # 감성 알파 (-1 ~ +1)
+    flow_alpha: float = 0.0         # 수급 알파 (-1 ~ +1)
+    financial_alpha: float = 0.0    # 재무 알파 (-1 ~ +1)
+    momentum_alpha: float = 0.0     # 모멘텀 알파 (-1 ~ +1)
+    composite_alpha: float = 0.0    # 종합 알파 (-1 ~ +1)
+    signal: str = "중립"           # 강한매수/매수/중립/매도/강한매도
+
 class SentimentResult(BaseModel):
     """연우가 만드는 결과물 — 감성 불확실성을 스스로 판단해서 같이 반환"""
     sentiment: Sentiment
@@ -121,6 +138,7 @@ class SentimentResult(BaseModel):
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
 
+    alpha: Optional[AlphaFactor] = None  # 퀀트 알파 팩터
 
 # ── 희선 담당: 예측 에이전트 결과 형식 ──
 class Prediction(BaseModel):
@@ -156,6 +174,9 @@ class StockAnalysisResponse(BaseModel):
     financial: Optional[FinancialData] = None
     realtime: List[RealtimePrice] = []
     news_uncertainty: Optional[UncertaintyResult] = None  # 뉴스 에이전트 불확실성
+    flow_alpha: float = 0.0       # 수급 알파 팩터
+    financial_alpha: float = 0.0  # 재무 알파 팩터
+    momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
     news: List[NewsItem]
     prediction: List[Prediction]  # 변경: 단건 -> 1일 단위 리스트
     sentiment: Sentiment
@@ -171,3 +192,8 @@ class StockAnalysisResponse(BaseModel):
     news_agent_epistemic: Optional[float] = None   # Epistemic 불확실성
     news_agent_aleatoric: Optional[float] = None   # Aleatoric 불확실성
     critic_report: Optional[str] = None  # LLM Critic 에이전트 리포트
+    flow_alpha: float = 0.0       # 수급 알파 팩터
+    financial_alpha: float = 0.0  # 재무 알파 팩터
+    momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
+    composite_alpha: float = 0.0  # 종합 알파 팩터sed -n '52,60p' ~/nuneddine/BE/yubin_data.py
+    

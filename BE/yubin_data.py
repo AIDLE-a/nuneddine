@@ -52,7 +52,10 @@ TICKER_KEYWORD_MAP = {
 EXCLUDE_KEYWORDS = [
     "추천주", "리딩방", "특가", "이벤트", "할인", "목표가", "종목분석", 
     "상한가", "급등주", "대박", "무료체험", "조건검색", "원룸", "분양",
-    "포토", "인사", "동정", "부음", "결혼", "카톡방", "텔레그램", "찌라시"
+    "포토", "인사", "동정", "부음", "결혼", "카톡방", "텔레그램", "찌라시",
+    "냉장고", "전자레인지", "세탁기", "에어컨", "청소기", "식기세척기",
+    "개그맨", "연예인", "배우", "가수", "아이돌", "드라마", "영화",
+    "요리", "맛집", "여행", "패션", "뷰티", "인테리어"
 ]
 
 # ── [추가] 티커별 필수 브랜드/기업명 (제목에 최소 1개 필수 포함) ────────────────
@@ -94,6 +97,12 @@ def get_stock_data(ticker: str) -> StockDataResult:
     realtime = _fetch_realtime(ticker)
     info_warning = _check_info_uncertainty(news)
     news_uncertainty = _calc_news_uncertainty(news)
+    flow_alpha = _calc_flow_alpha(institution_history, foreign_history, individual_history)
+    financial_alpha = _calc_financial_alpha(financial)
+    momentum_alpha = _calc_momentum_alpha(price_history)
+    print(f"📊 수급 알파 팩터: {flow_alpha:.3f}")
+    print(f"💰 재무 알파 팩터: {financial_alpha:.3f}")
+    print(f"📈 모멘텀 알파 팩터: {momentum_alpha:.3f}")
     print(f"📊 뉴스 에이전트 신뢰도: {news_uncertainty.confidence:.2f} | {news_uncertainty.reasoning}")
 
     # ── 재수집 메커니즘 (신뢰도 낮으면 키워드 확장해서 재시도) ──
@@ -120,6 +129,9 @@ def get_stock_data(ticker: str) -> StockDataResult:
         realtime=realtime,
         news=news,
         info_warning=info_warning,
+        flow_alpha=flow_alpha,
+        financial_alpha=financial_alpha,
+        momentum_alpha=momentum_alpha,
     )
 
 
@@ -459,6 +471,11 @@ def _fetch_financial_data(ticker: str):
             earnings_growth=info.get('earningsGrowth'),
             operating_margin=info.get('operatingMargins'),
             current_ratio=info.get('currentRatio'),
+            target_mean_price=info.get('targetMeanPrice'),
+            target_high_price=info.get('targetHighPrice'),
+            target_low_price=info.get('targetLowPrice'),
+            analyst_count=info.get('numberOfAnalystOpinions'),
+            recommendation=info.get('recommendationKey'),
         )
     except Exception as e:
         print(f"⚠️ 재무 데이터 수집 실패: {e}")
@@ -619,6 +636,104 @@ def _calc_news_uncertainty(news: list) -> "UncertaintyResult":
         confidence=confidence,
         reasoning=reasoning,
     )
+
+
+
+
+def _calc_momentum_alpha(price_history: list[float]) -> float:
+    """
+    퀀트 방식 모멘텀 알파 팩터
+    단기(5일) vs 장기(20일) 모멘텀 비교
+    """
+    if len(price_history) < 20:
+        return 0.0
+
+    current = price_history[-1]
+    price_5d = price_history[-5]
+    price_20d = price_history[-20]
+
+    # 단기 모멘텀 (5일)
+    momentum_5d = (current - price_5d) / price_5d if price_5d > 0 else 0
+
+    # 장기 모멘텀 (20일)
+    momentum_20d = (current - price_20d) / price_20d if price_20d > 0 else 0
+
+    # 단기 모멘텀 가중치 더 높음
+    alpha = momentum_5d * 0.6 + momentum_20d * 0.4
+
+    # -1 ~ +1 클리핑
+    alpha = max(-1.0, min(1.0, alpha * 5))  # 5배 스케일링
+    return round(alpha, 3)
+
+def _calc_financial_alpha(financial) -> float:
+    """
+    퀀트 방식 재무 알파 팩터 계산
+    PER, ROE, 부채비율, 성장률 기반
+    """
+    if not financial:
+        return 0.0
+
+    score = 0.0
+    count = 0
+
+    # ROE (수익성) — 10% 이상이면 긍정
+    if financial.roe is not None:
+        score += 1.0 if financial.roe > 0.1 else -0.5 if financial.roe < 0 else 0.0
+        count += 1
+
+    # 매출 성장률
+    if financial.revenue_growth is not None:
+        score += 1.0 if financial.revenue_growth > 0.1 else 0.3 if financial.revenue_growth > 0 else -0.5
+        count += 1
+
+    # 영업이익 성장률
+    if financial.earnings_growth is not None:
+        score += 1.0 if financial.earnings_growth > 0.1 else 0.3 if financial.earnings_growth > 0 else -0.5
+        count += 1
+
+    # 부채비율 (낮을수록 좋음)
+    if financial.debt_to_equity is not None:
+        score += 0.5 if financial.debt_to_equity < 50 else 0.0 if financial.debt_to_equity < 100 else -0.5
+        count += 1
+
+    # 영업이익률
+    if financial.operating_margin is not None:
+        score += 1.0 if financial.operating_margin > 0.15 else 0.3 if financial.operating_margin > 0 else -0.5
+        count += 1
+
+    if count == 0:
+        return 0.0
+
+    # -1 ~ +1 정규화
+    alpha = max(-1.0, min(1.0, score / count))
+    return round(alpha, 3)
+
+def _calc_flow_alpha(
+    institution: list[float],
+    foreign: list[float],
+    individual: list[float]
+) -> float:
+    """
+    퀀트 방식 수급 알파 팩터 계산
+    외국인/기관 순매수 트렌드 기반
+    """
+    if not institution or not foreign:
+        return 0.0
+
+    # 최근 3일 수급
+    inst_3d = sum(institution[:3])
+    foreign_3d = sum(foreign[:3])
+
+    # 정규화 기준값 (삼성전자 기준 약 1000만주)
+    scale = 10_000_000
+
+    inst_score = max(-1.0, min(1.0, inst_3d / scale))
+    foreign_score = max(-1.0, min(1.0, foreign_3d / scale))
+
+    # 외국인 가중치 더 높음 (시장 영향력 큼)
+    flow_alpha = inst_score * 0.4 + foreign_score * 0.6
+
+    return round(flow_alpha, 3)
 
 def _check_info_uncertainty(news: list[NewsItem]) -> str | None:
     if len(news) < 10:
