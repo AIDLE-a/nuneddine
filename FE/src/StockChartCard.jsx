@@ -30,11 +30,6 @@ function StockChartCard({ stock, analysis }) {
   const opGrowth = (rawOpGrowth != null && !isNaN(rawOpGrowth)) ? rawOpGrowth : 10.2;
   const opMargin = (rawOpMargin != null && !isNaN(rawOpMargin)) ? rawOpMargin : 42.75;
 
-  // 수급 데이터
-  const instHist = analysis?.institution_history || [];
-  const forgHist = analysis?.foreign_history || [];
-  const indivHist = analysis?.individual_history || [];
-
   const historyPrices = allPrices.slice(-7);
   const historyVolumes = allVolumes.slice(-7);
 
@@ -60,23 +55,13 @@ function StockChartCard({ stock, analysis }) {
     predicted: null,
   }));
 
-  // 예측 데이터(Prophet 등) 바인딩
-  const predictionDays = analysis?.prediction || [
-    { day: 1, future_price: (historyPrices[historyPrices.length - 1] || 250000) * 1.01 },
-    { day: 2, future_price: (historyPrices[historyPrices.length - 1] || 250000) * 1.02 },
-    { day: 3, future_price: (historyPrices[historyPrices.length - 1] || 250000) * 1.015 },
-    { day: 4, future_price: (historyPrices[historyPrices.length - 1] || 250000) * 1.03 },
-    { day: 5, future_price: (historyPrices[historyPrices.length - 1] || 250000) * 1.025 },
-    { day: 6, future_price: (historyPrices[historyPrices.length - 1] || 250000) * 1.04 },
-    { day: 7, future_price: (historyPrices[historyPrices.length - 1] || 250000) * 1.035 },
-  ];
-
-  if (priceData.length > 0) {
-    // 어제 지점과 예측선의 연결을 위해 어제 위치에 predicted 도 포함
+  // 예측 데이터(Prophet 등) 바인딩 (7일 배열 및 단일 처리 대응)
+  if (analysis && Array.isArray(analysis.prediction)) {
     const lastPrice = historyPrices[historyPrices.length - 1];
-    priceData[priceData.length - 1].predicted = lastPrice;
-
-    predictionDays.forEach((p) => {
+    if (priceData.length > 0) {
+      priceData[priceData.length - 1].predicted = lastPrice;
+    }
+    analysis.prediction.forEach((p) => {
       priceData.push({
         day: `D+${p.day}`,
         price: null,
@@ -96,7 +81,6 @@ function StockChartCard({ stock, analysis }) {
   }));
 
   // 3. 모달용 상세 테이블 데이터
-  // investor_data는 최신순(200일), price_history는 오래된순(243일)
   const investorData = analysis?.investor_data || [];
 
   const fullDetailTableData = allPrices.map((price, i) => {
@@ -107,7 +91,6 @@ function StockChartCard({ stock, analysis }) {
     const vol = allVolumes[i] || null;
     return { label, price, change, volume: vol };
   }).reverse().map((row, i) => {
-    // 최신순으로 investor_data 매칭
     const inv = investorData[i] || null;
     return {
       ...row,
@@ -215,7 +198,7 @@ function StockChartCard({ stock, analysis }) {
             <YAxis domain={[minVal, maxVal]} tickFormatter={formatPrice} tick={{ fontSize: 11, fill: '#6b7280' }} width={48} />
             <Tooltip content={<PriceTooltip />} />
 
-            {/* 실제 종가 선 (검은색/어두운 톤) */}
+            {/* 실제 종가 선 (검은색) */}
             <Line type="monotone" dataKey="price" stroke="#111827" strokeWidth={2.5} dot={{ r: 4, fill: '#111827' }} connectNulls={false} />
 
             {/* 예측 주가 선 (주황색 점선) */}
@@ -226,7 +209,7 @@ function StockChartCard({ stock, analysis }) {
           </ComposedChart>
         </ResponsiveContainer>
 
-        {/* 하단 거래량 막대 차트 (복구됨) */}
+        {/* 하단 거래량 막대 차트 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0 6px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: '#374151' }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: '#10B981', display: 'inline-block' }} />

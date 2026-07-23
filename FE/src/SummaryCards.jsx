@@ -62,7 +62,7 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
       : stock.change;
     const isPositive = priceChange != null ? priceChange >= 0 : stock.isPositive;
 
-    // 예측가
+    // 예측가 (배열의 마지막 7일차 대표값 추출)
     const finalDayPrediction = prediction?.length ? prediction[prediction.length - 1] : null;
     const formattedPredict = finalDayPrediction ? formatPrice(finalDayPrediction.future_price, currency) : '-';
     const formattedLower = finalDayPrediction ? formatPrice(finalDayPrediction.lower, currency) : '-';
