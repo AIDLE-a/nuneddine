@@ -100,6 +100,7 @@ def get_stock_data(ticker: str) -> StockDataResult:
     flow_alpha = _calc_flow_alpha(institution_history, foreign_history, individual_history)
     financial_alpha = _calc_financial_alpha(financial)
     momentum_alpha = _calc_momentum_alpha(price_history)
+    market_index = _fetch_market_index() if ticker.endswith(".KS") or ticker.endswith(".KQ") else {}
     print(f"📊 수급 알파 팩터: {flow_alpha:.3f}")
     print(f"💰 재무 알파 팩터: {financial_alpha:.3f}")
     print(f"📈 모멘텀 알파 팩터: {momentum_alpha:.3f}")
@@ -132,6 +133,7 @@ def get_stock_data(ticker: str) -> StockDataResult:
         flow_alpha=flow_alpha,
         financial_alpha=financial_alpha,
         momentum_alpha=momentum_alpha,
+        market_index=market_index,
     )
 
 
@@ -461,6 +463,30 @@ def _fetch_financial_data(ticker: str):
         stock = yf.Ticker(ticker)
         info = stock.info
 
+        # 월별 추천 트렌드
+        rec_trend = []
+        try:
+            recs = stock.recommendations
+            if recs is not None and not recs.empty:
+                for _, row in recs.iterrows():
+                    rec_trend.append({
+                        "period": row.get("period", ""),
+                        "strong_buy": int(row.get("strongBuy", 0)),
+                        "buy": int(row.get("buy", 0)),
+                        "hold": int(row.get("hold", 0)),
+                        "sell": int(row.get("sell", 0)),
+                        "strong_sell": int(row.get("strongSell", 0)),
+                    })
+        except:
+            pass
+
+        # 목표주가 중앙값
+        try:
+            apt = stock.analyst_price_targets
+            target_median = apt.get("median") if apt else None
+        except:
+            target_median = None
+
         return FinancialData(
             per=info.get('trailingPE'),
             forward_per=info.get('forwardPE'),
@@ -474,8 +500,10 @@ def _fetch_financial_data(ticker: str):
             target_mean_price=info.get('targetMeanPrice'),
             target_high_price=info.get('targetHighPrice'),
             target_low_price=info.get('targetLowPrice'),
+            target_median_price=target_median,
             analyst_count=info.get('numberOfAnalystOpinions'),
             recommendation=info.get('recommendationKey'),
+            recommendation_trend=rec_trend if rec_trend else None,
         )
     except Exception as e:
         print(f"⚠️ 재무 데이터 수집 실패: {e}")
@@ -639,6 +667,35 @@ def _calc_news_uncertainty(news: list) -> "UncertaintyResult":
 
 
 
+
+
+def _fetch_market_index() -> dict:
+    """
+    코스피/코스닥 지수 수집
+    예측 보정에 활용 (시장 전체 트렌드 반영)
+    """
+    try:
+        import math
+        result = {}
+        for name, ticker in [("kospi", "^KS11"), ("kosdaq", "^KQ11")]:
+            hist = yf.Ticker(ticker).history(period="10d")
+            if hist.empty:
+                continue
+            closes = [float(v) for v in hist["Close"].tolist() if not math.isnan(float(v))]
+            if len(closes) >= 2:
+                change_1d = (closes[-1] - closes[-2]) / closes[-2]
+                change_5d = (closes[-1] - closes[-5]) / closes[-5] if len(closes) >= 5 else 0
+                result[name] = {
+                    "current": round(closes[-1], 2),
+                    "change_1d": round(change_1d, 4),
+                    "change_5d": round(change_5d, 4),
+                    "trend": "상승" if change_5d > 0.01 else "하락" if change_5d < -0.01 else "보합",
+                }
+        print(f"📈 시장 지수 수집 완료: 코스피 {result.get('kospi', {}).get('current', '-')}")
+        return result
+    except Exception as e:
+        print(f"⚠️ 시장 지수 수집 실패: {e}")
+        return {}
 
 def _calc_momentum_alpha(price_history: list[float]) -> float:
     """

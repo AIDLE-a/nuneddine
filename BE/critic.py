@@ -41,12 +41,27 @@ def _llm_critique(
         financial_alpha = getattr(data_result, "financial_alpha", 0)
         momentum_alpha = getattr(data_result, "momentum_alpha", 0)
 
-        # 가중 평균 종합 알파
+        # 시장 지수 알파
+        market_index = getattr(data_result, "market_index", {}) or {}
+        kospi = market_index.get("kospi", {})
+        kospi_alpha = round(kospi.get("change_5d", 0) * 2, 3)  # 5일 변화율 기반
+
+        # 증권사 목표주가 알파
+        target_mean = getattr(getattr(data_result, "financial", None), "target_mean_price", None)
+        current_price = getattr(data_result, "price", 0)
+        analyst_alpha = 0
+        if target_mean and current_price:
+            upside = (target_mean - current_price) / current_price
+            analyst_alpha = round(max(-1.0, min(1.0, upside * 0.5)), 3)
+
+        # 가중 평균 종합 알파 (코스피 + 증권사 추가)
         composite_alpha = round(
-            sentiment_alpha  * 0.30 +
-            flow_alpha       * 0.30 +
-            financial_alpha  * 0.20 +
-            momentum_alpha   * 0.20,
+            sentiment_alpha  * 0.25 +
+            flow_alpha       * 0.25 +
+            financial_alpha  * 0.15 +
+            momentum_alpha   * 0.15 +
+            kospi_alpha      * 0.10 +
+            analyst_alpha    * 0.10,
             3
         )
         alpha_signal = "강한매수" if composite_alpha > 0.4 else "매수" if composite_alpha > 0.2 else "강한매도" if composite_alpha < -0.4 else "매도" if composite_alpha < -0.2 else "중립"
@@ -83,8 +98,12 @@ def _llm_critique(
 [모멘텀 에이전트]
 - 모멘텀 알파: {momentum_alpha:+.3f}
 
+[시장 지수]
+- 코스피: {kospi.get("current", "-")} ({kospi.get("trend", "-")}) / 5일 변화: {kospi_alpha:+.3f}
+- 증권사 평균 목표주가: {f"{target_mean:,.0f}원" if target_mean else "없음"} (업사이드: {f"{analyst_alpha:+.3f}" if analyst_alpha else "-"})
+
 [종합 알파 팩터]: {composite_alpha:+.3f} → {alpha_signal}
-(감성 30% + 수급 30% + 재무 20% + 모멘텀 20%)
+(감성 25% + 수급 25% + 재무 15% + 모멘텀 15% + 코스피 10% + 증권사 10%)
 
 [예측 에이전트]
 - 7일 후 예측가: {f"{final_pred.future_price:,.0f}원" if final_pred else "없음"}

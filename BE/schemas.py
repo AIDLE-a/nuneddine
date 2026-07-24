@@ -42,6 +42,8 @@ class FinancialData(BaseModel):
     target_low_price: Optional[float] = None   # 증권사 최저 목표주가
     analyst_count: Optional[int] = None        # 분석 애널리스트 수
     recommendation: Optional[str] = None       # 투자의견 (strong_buy/buy/hold/sell)
+    recommendation_trend: Optional[list] = None  # 월별 투자의견 트렌드
+    target_median_price: Optional[float] = None  # 목표주가 중앙값
 
 
 class InvestorData(BaseModel):
@@ -96,6 +98,7 @@ class StockDataResult(BaseModel):
     flow_alpha: float = 0.0       # 수급 알파 팩터
     financial_alpha: float = 0.0  # 재무 알파 팩터
     momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
+    market_index: Optional[dict] = None  # 코스피/코스닥 지수
     news: List[NewsItem]
     info_warning: Optional[str] = None
 
@@ -177,6 +180,7 @@ class StockAnalysisResponse(BaseModel):
     flow_alpha: float = 0.0       # 수급 알파 팩터
     financial_alpha: float = 0.0  # 재무 알파 팩터
     momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
+    market_index: Optional[dict] = None  # 코스피/코스닥 지수
     news: List[NewsItem]
     prediction: List[Prediction]  # 변경: 단건 -> 1일 단위 리스트
     sentiment: Sentiment
