@@ -1,8 +1,9 @@
 """
 통합 FastAPI 서버
-- /api/login  : Firebase 구글 로그인 검증 (담당: 채민/로그인팀)
-- /api/analyze: 주식 분석 오케스트레이터 (담당: 희선)
-               뉴스 수집(유빈) → 감성분석(연우) → 예측(희선) → Critic(희선)
+- /api/login      : Firebase 구글 로그인 검증 (담당: 채민/로그인팀)
+- /api/analyze    : 주식 분석 오케스트레이터 (담당: 희선)
+                    뉴스 수집(유빈) → 감성분석(연우) → 예측(희선) → Critic(희선)
+- /api/evaluation : 추천시스템 오프라인 평가 지표 리포트 (담당: 희선)
 
 실행: uvicorn main:app --reload
 """
@@ -15,6 +16,7 @@ import os
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import requests as http_requests
 
 import firebase_admin
@@ -36,6 +38,9 @@ import critic                                # 4단계: Critic 모순 검증
 from heesun_recommend_eval import run_full_evaluation
 
 app = FastAPI(title="주식 리서치 통합 서버")
+
+# 추천시스템 오프라인 평가 결과 메모리 캐시 변수
+EVALUATION_CACHE = None
 
 # CORS 에러 해결을 위해 allow_origins 설정 (Vite 프론트엔드 호환)
 app.add_middleware(
@@ -60,6 +65,19 @@ def _find_bad_floats(obj, path="root"):
         for i, v in enumerate(obj):
             bad.extend(_find_bad_floats(v, f"{path}[{i}]"))
     return bad
+
+def _build_reason_text(base_ticker: str, from_content: bool, from_cf: bool, sector_kr: str) -> str:
+    """연관 종목 추천 이유를 사람이 읽을 수 있는 문장으로 변환 (프론트 '?' 버튼 툴팁용)"""
+    reasons = []
+    if from_content:
+        reasons.append(f"최근 90일간 {base_ticker}와(과) 주가 움직임이 비슷했습니다")
+    if from_cf:
+        reasons.append(f"{base_ticker}에 관심등록한 다른 사용자들이 이 종목도 함께 관심등록했습니다")
+    if not reasons and sector_kr:
+        reasons.append(f"'{sector_kr}' 섹터에서 함께 묶이는 종목입니다")
+    if not reasons:
+        reasons.append("업종·시장 특성이 유사해 추천되었습니다")
+    return " · ".join(reasons)
 
 
 # Firebase Admin SDK 초기화
@@ -197,35 +215,94 @@ def related_stocks(ticker: str):
             base_sector_en = ""
             base_sector_kr = ""
 
-        url = f"https://query2.finance.yahoo.com/v6/finance/recommendationsbysymbol/{ticker}"
-        resp = http_requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
-        recs = resp.json().get("finance", {}).get("result", [{}])[0].get("recommendedSymbols", [])
-        symbols = [r.get("symbol") for r in recs[:12] if r.get("symbol") and r.get("symbol") != ticker]
+        # ── 야후 추천 API 결과 미리 받아두기 (1차 candidate pool 보강 + 2차 폴백에 재사용) ──
+        yahoo_symbols = []
+        try:
+            url = f"https://query2.finance.yahoo.com/v6/finance/recommendationsbysymbol/{ticker}"
+            resp = http_requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=5)
+            recs = resp.json().get("finance", {}).get("result", [{}])[0].get("recommendedSymbols", [])
+            yahoo_symbols = [r.get("symbol") for r in recs[:12] if r.get("symbol") and r.get("symbol") != ticker]
+        except Exception:
+            pass
 
-        if symbols:
+        # ── 1차: 하이브리드 추천 시스템 (CSV 확장 후보군 우선 사용) ──
+        candidate_pool = heesun_recommend.get_expanded_candidate_pool(ticker, base_sector_kr)
+        if not candidate_pool:
+            candidate_pool = list(yahoo_symbols)
+            if base_sector_kr:
+                candidate_pool.extend([t for t, _ in _SECTOR_FALLBACK.get(base_sector_kr, [])])
+            candidate_pool = list(set(t for t in candidate_pool if t and t != ticker))
+
+        if candidate_pool:
+            try:
+                hybrid_result = heesun_recommend.get_hybrid_recommendations(ticker, candidate_pool)
+            except Exception as e:
+                print(f"⚠️ 하이브리드 추천 실패, 폴백으로 진행: {e}")
+                hybrid_result = {"results": [], "cf_weight": 0}
+
+            if hybrid_result["results"]:
+                reason_map = {r["ticker"]: r for r in hybrid_result["results"]}
+                rec_tickers = list(reason_map.keys())
+
+                with ThreadPoolExecutor(max_workers=8) as ex:
+                    info_map = dict(ex.map(_get_info, rec_tickers))
+
+                results = []
+                for t in rec_tickers:
+                    if t not in info_map:
+                        continue
+                    item = dict(info_map[t])
+                    reason = reason_map[t]
+                    item["reason"] = _build_reason_text(
+                        ticker, reason["from_content"], reason["from_cf"], base_sector_kr
+                    )
+                    item["from_content"] = reason["from_content"]
+                    item["from_cf"] = reason["from_cf"]
+                    results.append(item)
+
+                if results:
+                    return {
+                        "results": results[:6],
+                        "cf_weight": hybrid_result["cf_weight"],
+                    }
+
+        # ── 2차 폴백: 야후 추천 API 단독 (섹터 필터링) ──
+        if yahoo_symbols:
             with ThreadPoolExecutor(max_workers=8) as ex:
-                info_map = dict(ex.map(_get_info, symbols))
+                info_map = dict(ex.map(_get_info, yahoo_symbols))
             results = []
-            for s in symbols:
+            for s in yahoo_symbols:
                 item = info_map.get(s)
                 if not item:
                     continue
                 if base_sector_kr and item["sector"] != base_sector_kr and item["sector"] != "기타":
                     continue
+                item = dict(item)
+                item["reason"] = f"야후 파이낸스가 {ticker}와(과) 함께 검색된 종목으로 추천했습니다."
+                item["from_content"] = False
+                item["from_cf"] = False
                 results.append(item)
             if results:
-                return {"results": results[:6]}
+                return {"results": results[:6], "cf_weight": 0}
 
+        # ── 3차 폴백: 섹터 기반 하드코딩 목록 ──
         if base_sector_kr:
             fallback = _SECTOR_FALLBACK.get(base_sector_kr, [])
             results = [
-                {"ticker": t, "name": n, "sector": base_sector_kr}
+                {
+                    "ticker": t,
+                    "name": n,
+                    "sector": base_sector_kr,
+                    "reason": f"'{base_sector_kr}' 섹터에 속한 대표 종목이라 추천했습니다.",
+                    "from_content": False,
+                    "from_cf": False,
+                }
                 for t, n in fallback if t != ticker
             ]
             if results:
-                return {"results": results}
+                return {"results": results, "cf_weight": 0}
 
-        return {"results": []}
+        return {"results": [], "cf_weight": 0}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -414,6 +491,82 @@ async def login_check(authorization: str = Header(None)):
         }
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"유효하지 않은 토큰입니다: {str(e)}")
+
+
+# ── 희선 담당 (추천시스템 오프라인 평가 리포트 API) ──
+@app.get("/api/evaluation")
+def get_evaluation_report(force_refresh: bool = False):
+    """
+    연관 종목 추천 시스템 오프라인 평가(Coverage, Diversity, Novelty, Accuracy, Speed)를 수행하고
+    결과 리포트를 반환합니다. (JSON 직렬화 안정성 보장)
+    """
+    global EVALUATION_CACHE
+
+    if EVALUATION_CACHE and not force_refresh:
+        return EVALUATION_CACHE
+
+    try:
+        test_tickers = ["005930.KS", "000660.KS", "035420.KS", "064400.KS"]
+        raw_report = run_full_evaluation(test_tickers)
+        
+        # 💡 numpy float64 및 dict 포맷을 표준 Python dict/float 구조로 변환
+        import json
+        json_safe_report = json.loads(json.dumps(raw_report, default=str))
+
+        # 프론트엔드가 요구하는 구조(summary, details) 보장
+        if "summary" not in json_safe_report and "per_ticker" in json_safe_report:
+            # heesun_recommend_eval.py가 구버전 구조일 경우 호환 변환
+            per_ticker = json_safe_report.get("per_ticker", {})
+            details = []
+            div_list, nov_list, acc_list, spd_list = [], [], [], []
+
+            for t, val in per_ticker.items():
+                div = float(val.get("diversity", {}).get("diversity", 0.0) or 0.0)
+                nov = float(val.get("novelty", {}).get("novelty_score", 0.0) or 0.0)
+                acc = float(val.get("accuracy_proxy", {}).get("accuracy_proxy", 0.0) or 0.0)
+                spd = float(val.get("speed", {}).get("avg_seconds", 0.0) or 0.0) * 1000.0
+
+                div_list.append(div)
+                nov_list.append(nov)
+                acc_list.append(acc)
+                spd_list.append(spd)
+
+                details.append({
+                    "ticker": t,
+                    "execution_time_ms": round(spd, 1),
+                    "metrics": {
+                        "diversity": div,
+                        "novelty": nov,
+                        "accuracy_proxy": acc
+                    }
+                })
+
+            cov_val = float(json_safe_report.get("coverage", {}).get("coverage", 0.0) or 0.0)
+            
+            report = {
+                "summary": {
+                    "coverage": round(cov_val, 4),
+                    "avg_diversity": round(sum(div_list)/len(div_list), 4) if div_list else 0.0,
+                    "avg_novelty": round(sum(nov_list)/len(nov_list), 4) if nov_list else 0.0,
+                    "avg_speed_ms": round(sum(spd_list)/len(spd_list), 1) if spd_list else 0.0,
+                    "accuracy": {
+                        "hit_rate": round(sum(acc_list)/len(acc_list), 4) if acc_list else 0.0,
+                        "precision": round(sum(acc_list)/len(acc_list), 4) if acc_list else 0.0,
+                        "recall": round(sum(acc_list)/len(acc_list), 4) if acc_list else 0.0
+                    }
+                },
+                "details": details
+            }
+        else:
+            report = json_safe_report
+
+        EVALUATION_CACHE = report
+        return report
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"평가 실행 중 오류 발생: {str(e)}")
 
 
 # ── 희선 담당 (주식 리서치 오케스트레이터) ──
