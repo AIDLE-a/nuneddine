@@ -278,9 +278,40 @@ def run_prophet_forecast(df: pd.DataFrame, forecast_days: int = 7) -> pd.DataFra
         daily_seasonality=False,
         weekly_seasonality=True,
         yearly_seasonality=True,
-        interval_width=0.80,
-        changepoint_prior_scale=0.05
+        interval_width=0.85,          # 신뢰구간 85%로 확대 (보수적)
+        changepoint_prior_scale=0.03, # 변동점 민감도 낮춤 (과적합 방지)
+        seasonality_prior_scale=10,   # 계절성 강도
+        holidays_prior_scale=10,      # 공휴일 효과
     )
+
+    # 한국 공휴일 추가
+    try:
+        import pandas as pd
+        kr_holidays = pd.DataFrame({
+            "holiday": "kr_holiday",
+            "ds": pd.to_datetime([
+                "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30",
+                "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06",
+                "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06",
+                "2025-10-07", "2025-10-08", "2025-10-09", "2025-12-25",
+                "2026-01-01", "2026-01-28", "2026-01-29", "2026-01-30",
+                "2026-03-01", "2026-05-05", "2026-06-06", "2026-08-15",
+            ]),
+            "lower_window": 0,
+            "upper_window": 1,
+        })
+        model = Prophet(
+            daily_seasonality=False,
+            weekly_seasonality=True,
+            yearly_seasonality=True,
+            interval_width=0.85,
+            changepoint_prior_scale=0.03,
+            seasonality_prior_scale=10,
+            holidays_prior_scale=10,
+            holidays=kr_holidays,
+        )
+    except:
+        pass
     
     # 거래량을 외생 변수로 등록
     model.add_regressor("Volume")
@@ -324,10 +355,14 @@ def calculate_daily_uncertainty(
 
         # 구간이 좁을수록 높은 점수
         interval_score = max(0, (1 - interval_ratio / 0.30)) * 100
-        recency_penalty = 1 - ((day_num - 1) * 0.03)
+        recency_penalty = 1 - ((day_num - 1) * 0.04)  # 날짜 멀수록 더 많이 패널티
         adj_vol_score = volatility_score * recency_penalty
 
-        final_score = int(interval_score * 0.70 + adj_vol_score * 0.30)
+        # 가격 방향성 점수 추가
+        price_direction = row["yhat"] - current_price
+        direction_score = min(10, abs(price_direction / current_price) * 100)
+
+        final_score = int(interval_score * 0.60 + adj_vol_score * 0.30 + direction_score * 0.10)
         final_score = max(10, min(99, final_score))  # 10~99점 제약
 
         daily_results.append({
@@ -344,7 +379,7 @@ def calculate_daily_uncertainty(
 
 def run_forecast_pipeline(ticker: str, forecast_days: int = 7) -> dict:
     """전체 Prophet 파이프라인 처리"""
-    df = fetch_price_data(ticker, period_days=365)
+    df = fetch_price_data(ticker, period_days=365)  # 1년 데이터
     current_price = float(df["y"].iloc[-1])
     
     forecast = run_prophet_forecast(df, forecast_days=forecast_days)
