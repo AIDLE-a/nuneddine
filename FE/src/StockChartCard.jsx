@@ -18,17 +18,12 @@ function StockChartCard({ stock, analysis }) {
   const realtimeData = analysis?.realtime || [];
 
   // 영업이익 성장률 / 영업이익률
-  const rawOpGrowth = analysis?.operating_growth
-    ?? analysis?.financial?.operating_profit_growth
-    ?? analysis?.financial?.operating_growth
-    ?? analysis?.financial?.op_growth;
+  const rawOpGrowth = analysis?.financial?.earnings_growth ?? null;
 
-  const rawOpMargin = analysis?.operating_margin
-    ?? analysis?.financial?.op_margin
-    ?? analysis?.financial?.operating_margin;
+  const rawOpMargin = analysis?.financial?.operating_margin ?? null;
 
-  const opGrowth = (rawOpGrowth != null && !isNaN(rawOpGrowth)) ? rawOpGrowth : 10.2;
-  const opMargin = (rawOpMargin != null && !isNaN(rawOpMargin)) ? rawOpMargin : 42.75;
+  const opGrowth = (rawOpGrowth != null && !isNaN(rawOpGrowth)) ? Math.round(rawOpGrowth * 1000) / 10 : null;
+  const opMargin = (rawOpMargin != null && !isNaN(rawOpMargin)) ? Math.round(rawOpMargin * 1000) / 10 : null;
 
   const historyPrices = allPrices.slice(-7);
   const historyVolumes = allVolumes.slice(-7);
@@ -171,14 +166,14 @@ function StockChartCard({ stock, analysis }) {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, background: '#f9fafb', padding: 12, borderRadius: 8 }}>
           <div>
             <div style={{ fontSize: 12, color: '#6b7280' }}>영업이익 성장률</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: opGrowth >= 0 ? '#10B981' : '#EF4444' }}>
-              {opGrowth >= 0 ? `+${opGrowth}%` : `${opGrowth}%`}
+            <div style={{ fontSize: 18, fontWeight: 700, color: opGrowth != null ? (opGrowth >= 0 ? '#10B981' : '#EF4444') : '#9ca3af' }}>
+              {opGrowth != null ? (opGrowth >= 0 ? `+${opGrowth}%` : `${opGrowth}%`) : '–'}
             </div>
           </div>
           <div>
             <div style={{ fontSize: 12, color: '#6b7280' }}>영업이익률</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: opMargin >= 0 ? '#10B981' : '#EF4444' }}>
-              {opMargin >= 0 ? `+${opMargin}%` : `${opMargin}%`}
+            <div style={{ fontSize: 18, fontWeight: 700, color: opMargin != null ? (opMargin >= 0 ? '#10B981' : '#EF4444') : '#9ca3af' }}>
+              {opMargin != null ? (opMargin >= 0 ? `+${opMargin}%` : `${opMargin}%`) : '–'}
             </div>
           </div>
         </div>

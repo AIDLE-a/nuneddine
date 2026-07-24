@@ -45,7 +45,7 @@ EVALUATION_CACHE = None
 # CORS 에러 해결을 위해 allow_origins 설정 (Vite 프론트엔드 호환)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174", "http://127.0.0.1:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
