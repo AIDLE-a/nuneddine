@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import NewsAgentModal from './NewsAgentModal';
 import DetailReportModal from './DetailReportModal';
 import { savePrediction } from './predictionStorage';
+import AnalystTargetModal from './AnalystTargetModal';
 
 function AiReportCard({ stock, analysis, isLoading }) {
   const [showFinancial, setShowFinancial] = useState(false);
@@ -100,6 +101,7 @@ function AiReportCard({ stock, analysis, isLoading }) {
             )}
 
             <div className="report-buttons" style={{ marginTop: '16px' }}>
+              <AnalystTargetModal analysis={analysis} stock={stock} />
               <DetailReportModal stock={stock} analysis={analysis} />
               {financial && (
                 <button className="btn-secondary" onClick={() => setShowFinancial(true)}>
