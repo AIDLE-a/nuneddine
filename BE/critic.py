@@ -147,10 +147,30 @@ def _llm_critique(
 ※ AI 자동 생성 투자 참고용 자료. 투자 권유 아님."""
 
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": """당신은 한국 증권사 수석 애널리스트입니다. 반드시 한국어로만 작성하세요.
+
+절대 금지:
+- 일본어, 중국어, 영어 단어 혼용
+- "~할 수 있다", "~로 보인다", "~에 영향을 미친다" 등 추측성 표현
+- 같은 내용 반복
+- 주가와 무관한 사회공헌/이벤트 뉴스 언급
+- 투자 권유
+
+반드시:
+- 주가에 직접 영향을 주는 뉴스만 언급 (실적, 수급, M&A, 기술, 규제)
+- 알파값/주가/비율 등 구체적 수치 직접 인용
+- 에이전트 간 모순 발견시 "모순: " 접두사로 명확히 지적
+- 각 섹션 3문장 이내 핵심만
+- 단정적 서술 (예: "외국인 3일 연속 순매수, 수급 알파 +0.322")"""
+                },
+                {"role": "user", "content": prompt}
+            ],
             max_tokens=1500,
-            temperature=0.3,
+            temperature=0.2,
         )
         return response.choices[0].message.content
 
