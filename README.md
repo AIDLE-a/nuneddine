@@ -1,12 +1,9 @@
-<<<<<<< HEAD
-# nuneddine
-=======
 # NuneDDine — 주식 AI 리서치 플랫폼
 
 > 종목 검색 → 뉴스 수집 → 감성 분석 → 주가 예측 → 신뢰도 경고까지 한 화면에
 
 **"AI가 자기 한계를 아는 시스템"** — 각 에이전트가 스스로 불확실성을 보고하고, Critic 에이전트가 이를 모아 최종 신뢰도를 산출합니다.  
-+ ESP32 BLE 다마고치 키링과 연동해 관심 종목 등락률을 캐릭터 표정으로 실시간 확인할 수 있습니다.
+ESP32-C3 + ST7789 다마고치와 BLE로 연동해 관심 종목 등락률을 캐릭터 표정으로 실시간 확인할 수 있습니다.
 
 ---
 
@@ -14,10 +11,10 @@
 
 | 팀원 | 역할 | 담당 코드 |
 |------|------|-----------|
-| 채민 | FE 리더 — React 대시보드, 라우팅, Firebase 연동, BLE 아두이노 | `FE/src/`, `arduino/` |
-| 희선 | BE 리더 — FastAPI 오케스트레이터, Prophet 예측, Critic 에이전트 | `BE/main.py`, `BE/heesun_*.py`, `BE/critic.py` |
-| 유빈 | 데이터 수집 — yfinance 주가, Naver·Google·NewsAPI 뉴스 수집 | `BE/yubin_*.py` |
-| 연우 | AI/ML — FinBERT 감성분석, XAI(단어 기여도), 트렌드·변동성 분석 | `BE/yeonwoo_*.py` |
+| 희선 | A · 시스템/백엔드 리더 — FastAPI 전체 구조, 에이전트 orchestration, Prophet 예측, Critic 에이전트 | `BE/main.py`, `BE/heesun_*.py`, `BE/critic.py` |
+| 유빈 | B · 데이터 수집 — yfinance 주가, Naver·Google RSS·NewsAPI 뉴스 수집·전처리 | `BE/yubin_*.py` |
+| 연우 | C · AI/ML — FinBERT 감성 분석, XAI(Leave-one-out 단어 기여도), 트렌드·변동성 | `BE/yeonwoo_*.py` |
+| 채민 | D · 프론트엔드 + Arduino — React/Vite UI, CSS 디자인 시스템, ESP32 ST7789 다마고치, BLE | `FE/src/`, `arduino/` |
 
 ---
 
@@ -48,7 +45,7 @@ it_26/
 │           ├── CommunityPage.jsx    # 커뮤니티 (/community)
 │           ├── PostDetailPage.jsx   # 게시글 상세 (/community/:id)
 │           ├── RankingPage.jsx      # 인기 종목 (/ranking)
-│           ├── FavoritesPage.jsx    # 관심 종목 (/favorites)
+│           ├── FavoritesPage.jsx    # 관심 종목 + 손익 관리 (/favorites)
 │           ├── HistoryPage.jsx      # 분석 기록 (/history)
 │           └── MyPage.jsx           # 마이페이지 (/mypage)
 │
@@ -64,15 +61,19 @@ it_26/
 │   ├── yubin_filter.py              # 유빈: 뉴스 필터링
 │   ├── yubin_news.py                # 유빈: 뉴스 처리 유틸
 │   ├── yubin_stock.py               # 유빈: 주가 데이터 수집
+│   ├── firebase_config.json         # Firebase Admin SDK 키 (gitignore — 커밋 금지)
 │   └── requirements.txt             # Python 의존성
 │
-└── arduino/                         # ESP32 BLE 다마고치 키링
-    ├── tamagotchi_esp32/
-    │   └── tamagotchi_esp32.ino     # ESP32-C3 Arduino 스케치
-    ├── tamagotchi_uno/
-    │   └── tamagotchi_uno.ino       # Arduino UNO 버전
-    ├── ble_sender.py                # PC → ESP32 BLE 송신 스크립트
-    └── README.md                    # 아두이노 핀 연결 및 동작 설명
+├── arduino/                         # ESP32 BLE 다마고치
+│   ├── tamagotchi_st7789_converted/
+│   │   └── tamagotchi_st7789_converted.ino  # ST7789 240×240 메인 스케치
+│   ├── tamagotchi_esp32/
+│   │   └── tamagotchi_esp32.ino     # 구버전 (ST7735)
+│   ├── ble_sender.py                # PC → ESP32 BLE 송신 (5분 주기)
+│   └── README.md                    # 핀 연결 및 동작 설명
+│
+├── gen_ppt.js                       # 발표 PPT 생성 스크립트 (pptxgenjs)
+└── NuneDDine_발표.pptx              # 생성된 발표 자료
 ```
 
 ---
@@ -100,7 +101,7 @@ npm run dev
 ### BLE 다마고치 (선택)
 
 ```bash
-# ESP32에 tamagotchi_esp32.ino 업로드 후
+# ESP32에 tamagotchi_st7789_converted.ino 업로드 후
 cd arduino
 pip install bleak requests yfinance
 python ble_sender.py
@@ -142,20 +143,28 @@ python ble_sender.py
 }
 ```
 
+### BLE 데이터 포맷
+
+```
+"삼성전자,+1.23,71000.00,W,68000.00,10|카카오,-0.50,45000.00,W,0.00,0|..."
+ 종목명   등락률  현재가   통화 매수가    수량
+```
+파이프(`|`)로 종목 구분, 최대 6개. 매수 미입력 시 `0.00,0`.
+
 ---
 
 ## ⚙️ 환경변수
 
-### BE — `.env` 파일 (BE/ 폴더에 생성)
+### BE — `BE/.env`
 
 ```env
 USE_MOCK_DATA=true        # false로 바꾸면 실제 API 호출
-NEWS_API_KEY=your_key     # https://newsapi.org 에서 발급
-NAVER_CLIENT_ID=your_key  # https://developers.naver.com 에서 발급
+NEWS_API_KEY=your_key     # https://newsapi.org
+NAVER_CLIENT_ID=your_key  # https://developers.naver.com
 NAVER_CLIENT_SECRET=your_key
 ```
 
-### FE — `.env` 파일 (FE/ 폴더에 생성)
+### FE — `FE/.env`
 
 ```env
 VITE_FIREBASE_API_KEY=...
@@ -166,7 +175,7 @@ VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
 ```
 
-> `.env` 파일은 절대 커밋하지 마세요 (gitignore에 포함됨).
+> `BE/firebase_config.json` 및 `.env` 파일은 절대 커밋하지 마세요 (`.gitignore`에 포함됨).
 
 ---
 
@@ -178,11 +187,12 @@ VITE_FIREBASE_APP_ID=...
 [FE] AnalysisPage → analyzeStock(ticker)
   ↓ HTTP GET /api/analyze
 [BE] main.py (오케스트레이터 — 희선)
-  ├─ yubin_data.get_news()           → 뉴스 수집 (Naver·Google·yfinance·NewsAPI)
-  ├─ yubin_stock.get_price()         → 주가 데이터 (yfinance)
-  ├─ yeonwoo_sentiment.analyze()    → 가중치 감성분석 + 트렌드 + 변동성 (연우)
-  ├─ heesun_prediction.predict()    → Prophet 7일 예측 (희선)
-  └─ critic.review()                 → 경고 목록 + 신뢰도 점수 (희선)
+  ├─ yubin_data.get_news()        → 뉴스 수집 (Naver·Google·yfinance·NewsAPI)
+  ├─ yubin_stock.get_price()      → 주가 데이터 (yfinance)
+  ├─ yeonwoo_sentiment.analyze()  → 가중치 감성분석 + 트렌드 + 변동성
+  ├─ yeonwoo_xai.explain()        → XAI 단어 기여도 (연우)
+  ├─ heesun_prediction.predict()  → Prophet 7일 예측 (희선)
+  └─ critic.review()              → 경고 목록 + 신뢰도 점수 (희선)
   ↓
 [FE] 화면 업데이트
   ├─ SummaryCards    — 현재가 / 예측가 / 감성방향 / 뉴스수
@@ -192,11 +202,30 @@ VITE_FIREBASE_APP_ID=...
   ├─ RecentNewsCard  — 최신 뉴스 목록
   └─ AiReportCard    — AI 리포트 + 경고 배너
 
+[관심 종목 손익]
+  FavoritesPage → 매수가·수량 입력 → updateFavoritePurchase() → Firestore
+  손익 = (현재가 - 매수가) × 수량
+
 [BLE 연동]
   FE 로그인 → /api/active-user 갱신
-  ble_sender.py → /api/watchlist → /api/tamagotchi → ESP32 전송
-  ESP32 → TFT 캐릭터 표정 표시 (등락률 기반)
+  ble_sender.py (5분 주기) → /api/watchlist → /api/tamagotchi → ESP32 BLE 전송
+  ESP32 ST7789 → 캐릭터 표정 (6단계: HAPPY/SEMI-HAPPY/NORMAL/TIRED/CRYING/SICK)
 ```
+
+---
+
+## 🤖 다마고치 감정 상태
+
+| 상태 | 조건 | 색상 |
+|------|------|------|
+| HAPPY | 등락률 +5% 초과 | 초록 |
+| SEMI-HAPPY | +2% ~ +5% | 연두 |
+| NORMAL | -2% ~ +2% | 흰색 |
+| TIRED | -5% ~ -2% | 노랑 |
+| CRYING | -10% ~ -5% | 하늘 |
+| SICK | -10% 이하 | 빨강 |
+
+등락 구간 변화 시 버저(`tone()`) 알림 발생.
 
 ---
 
@@ -204,10 +233,10 @@ VITE_FIREBASE_APP_ID=...
 
 | 주차 | 목표 |
 |------|------|
-| 1주차 | 각 기능 단독 성공, API 계약 확정 |
-| 2주차 | 전체 연결 (`USE_MOCK_DATA=false` 전환) |
-| 3주차 | 감성분석 고도화 (가중치·트렌드·변동성), BLE 다마고치 완성 |
-| 4주차 | UI 다듬기, 커뮤니티·랭킹 기능 완성, 발표 시나리오 준비 |
+| 1주차 | 각 기능 단독 성공 + **API 계약 JSON 형식 확정** |
+| 2주차 | 전체 연결 (`USE_MOCK_DATA=false` 전환, 종목 입력 → 결과 출력) |
+| 3주차 | uncertainty 시스템 (경고 생성), BLE 다마고치 완성 |
+| 4주차 | UI 다듬기, 속도 개선, 오류 처리, 발표 시나리오 |
 
-> **매주 토요일**: "삼성전자" 입력 → 전체 동작 통합 테스트 필수
->>>>>>> origin/FE_CHAEMIN
+> **매주 토요일**: "삼성전자" 입력 → 전체 동작 통합 테스트 필수  
+> **주 2회 회의**: 화요일(진행 공유) + 토요일(통합 테스트)
