@@ -1,3 +1,4 @@
+
 """
 [담당: 희선]
 Prophet 기반 7일 주가 예측(1일 단위 세분화) + 감성 점수로 보정.
@@ -53,7 +54,7 @@ def _run_prophet(ticker: str, price: float) -> list[Prediction]:
         print(f"⚡ {ticker} Prophet 캐시 사용")
         return cached["predictions"]
 
-    from heesun_forecast import run_forecast_uncertainty
+    from heesun_forecast import run_forecast_pipeline as run_forecast_uncertainty
 
     result = run_forecast_uncertainty(ticker, forecast_days=FORECAST_DAYS)
 

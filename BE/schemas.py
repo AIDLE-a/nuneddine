@@ -19,6 +19,31 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 
+class RealtimePrice(BaseModel):
+    """1분 단위 실시간 주가"""
+    time: str      # "14:55" 형태
+    price: float
+    volume: int
+
+
+class FinancialData(BaseModel):
+    """재무제표 핵심 지표"""
+    per: Optional[float] = None           # 주가수익비율 (낮을수록 저평가)
+    forward_per: Optional[float] = None   # 예상 PER
+    pbr: Optional[float] = None           # 주가순자산비율
+    roe: Optional[float] = None           # 자기자본이익률 (높을수록 수익성 좋음)
+    debt_to_equity: Optional[float] = None  # 부채비율 (낮을수록 안정적)
+    revenue_growth: Optional[float] = None  # 매출 성장률
+    earnings_growth: Optional[float] = None # 영업이익 성장률
+    operating_margin: Optional[float] = None # 영업이익률
+    current_ratio: Optional[float] = None   # 유동비율 (높을수록 안정적)
+    target_mean_price: Optional[float] = None  # 증권사 평균 목표주가
+    target_high_price: Optional[float] = None  # 증권사 최고 목표주가
+    target_low_price: Optional[float] = None   # 증권사 최저 목표주가
+    analyst_count: Optional[int] = None        # 분석 애널리스트 수
+    recommendation: Optional[str] = None       # 투자의견 (strong_buy/buy/hold/sell)
+
+
 class InvestorData(BaseModel):
     """날짜별 기관/외국인/개인 순매매 데이터"""
     date: str
@@ -35,6 +60,25 @@ class NewsItem(BaseModel):
     published_at: str
     description: Optional[str] = None  # 뉴스 요약 (감성 분석 정확도 향상용)
 
+# ── 베이지안 불확실성 구조 (Uncertainty-aware Agent) ──
+class UncertaintyResult(BaseModel):
+    """
+    각 에이전트의 불확실성 정량화
+    논문: Uncertainty-aware soft sensor using Bayesian recurrent neural networks
+    """
+    epistemic: float    # 인식론적 불확실성 (데이터 부족, 0~1)
+    aleatoric: float    # 우발적 불확실성 (노이즈/혼재, 0~1)
+    confidence: float   # 최종 신뢰도 (0~1)
+    reasoning: str      # 판단 이유
+
+class NewsAgentResult(BaseModel):
+    """뉴스 에이전트 결과 — 불확실성 포함"""
+    news: List[NewsItem]
+    uncertainty: UncertaintyResult
+    retry_count: int = 0
+    info_warning: Optional[str] = None
+
+
 
 class StockDataResult(BaseModel):
     """유빈이 만드는 결과물 — 정보 불확실성을 스스로 판단해서 같이 반환"""
@@ -45,7 +89,13 @@ class StockDataResult(BaseModel):
     institution_history: List[float] = []
     foreign_history: List[float] = []
     individual_history: List[float] = []
-    investor_data: List[InvestorData] = []  # 날짜별 상세 수급 데이터 (전체 기간)
+    investor_data: List[InvestorData] = []
+    financial: Optional[FinancialData] = None
+    realtime: List[RealtimePrice] = []
+    news_uncertainty: Optional[UncertaintyResult] = None  # 뉴스 에이전트 불확실성
+    flow_alpha: float = 0.0       # 수급 알파 팩터
+    financial_alpha: float = 0.0  # 재무 알파 팩터
+    momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
     news: List[NewsItem]
     info_warning: Optional[str] = None
 
@@ -70,6 +120,15 @@ class SentimentTrend(BaseModel):
     change: float
 
 
+class AlphaFactor(BaseModel):
+    """퀀트 펀드 방식 알파 팩터 — 각 에이전트가 생성"""
+    sentiment_alpha: float = 0.0    # 감성 알파 (-1 ~ +1)
+    flow_alpha: float = 0.0         # 수급 알파 (-1 ~ +1)
+    financial_alpha: float = 0.0    # 재무 알파 (-1 ~ +1)
+    momentum_alpha: float = 0.0     # 모멘텀 알파 (-1 ~ +1)
+    composite_alpha: float = 0.0    # 종합 알파 (-1 ~ +1)
+    signal: str = "중립"           # 강한매수/매수/중립/매도/강한매도
+
 class SentimentResult(BaseModel):
     """연우가 만드는 결과물 — 감성 불확실성을 스스로 판단해서 같이 반환"""
     sentiment: Sentiment
@@ -79,6 +138,7 @@ class SentimentResult(BaseModel):
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
 
+    alpha: Optional[AlphaFactor] = None  # 퀀트 알파 팩터
 
 # ── 희선 담당: 예측 에이전트 결과 형식 ──
 class Prediction(BaseModel):
@@ -110,7 +170,13 @@ class StockAnalysisResponse(BaseModel):
     institution_history: List[float] = []
     foreign_history: List[float] = []
     individual_history: List[float] = []
-    investor_data: List[InvestorData] = []  # 날짜별 상세 수급 (상세 모달용)
+    investor_data: List[InvestorData] = []
+    financial: Optional[FinancialData] = None
+    realtime: List[RealtimePrice] = []
+    news_uncertainty: Optional[UncertaintyResult] = None  # 뉴스 에이전트 불확실성
+    flow_alpha: float = 0.0       # 수급 알파 팩터
+    financial_alpha: float = 0.0  # 재무 알파 팩터
+    momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
     news: List[NewsItem]
     prediction: List[Prediction]  # 변경: 단건 -> 1일 단위 리스트
     sentiment: Sentiment
@@ -121,3 +187,13 @@ class StockAnalysisResponse(BaseModel):
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
     volume_analysis: Optional[str] = None  # [★추가] 리포트에 들어갈 거래량 분석 요약 문구
+    news_agent_report: Optional[str] = None  # 뉴스 에이전트 분석 리포트
+    news_agent_confidence: Optional[float] = None  # 뉴스 에이전트 신뢰도
+    news_agent_epistemic: Optional[float] = None   # Epistemic 불확실성
+    news_agent_aleatoric: Optional[float] = None   # Aleatoric 불확실성
+    critic_report: Optional[str] = None  # LLM Critic 에이전트 리포트
+    flow_alpha: float = 0.0       # 수급 알파 팩터
+    financial_alpha: float = 0.0  # 재무 알파 팩터
+    momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
+    composite_alpha: float = 0.0  # 종합 알파 팩터sed -n '52,60p' ~/nuneddine/BE/yubin_data.py
+    

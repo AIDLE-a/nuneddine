@@ -45,7 +45,7 @@ def get_uid():
 
 
 def get_watchlist():
-    """백엔드에서 사용자 관심 종목 가져오기 (최대 5개)"""
+    """백엔드에서 사용자 관심 종목 가져오기 (최대 5개, 매수가/수량 포함)"""
     uid = get_uid()
     if not uid:
         print("앱에 로그인된 사용자가 없어요.")
@@ -53,7 +53,14 @@ def get_watchlist():
     try:
         r = requests.get(f"{API_BASE}/api/watchlist", params={"uid": uid}, timeout=8)
         favorites = r.json().get("favorites", [])
-        return [(f["ticker"], get_english_name(f["ticker"])) for f in favorites[:5]]
+        result = []
+        for f in favorites[:6]:
+            ticker = f["ticker"]
+            name = get_english_name(ticker)
+            buy_price = f.get("purchasePrice") or 0.0
+            buy_qty   = f.get("purchaseQuantity") or 0
+            result.append((ticker, name, float(buy_price), int(buy_qty)))
+        return result
     except Exception as e:
         print(f"관심 종목 조회 실패: {e}")
         return []
@@ -65,13 +72,13 @@ def get_currency(ticker: str) -> str:
 
 
 def fetch_all():
-    """모든 관심 종목 주가 가져오기"""
+    """모든 관심 종목 주가 가져오기 (매수가 기준 손익 포함)"""
     watchlist = get_watchlist()
     if not watchlist:
         print("관심 종목이 없어요. USER_UID를 확인하세요.")
         return ""
     entries = []
-    for ticker, name in watchlist:
+    for ticker, name, buy_price, buy_qty in watchlist:
         try:
             r = requests.get(
                 f"{API_BASE}/api/tamagotchi",
@@ -83,8 +90,14 @@ def fetch_all():
             price = data.get("price", 0.0)
             unit  = get_currency(ticker)
             if price:
-                entries.append(f"{name},{pct:.2f},{price:.0f},{unit}")
-                print(f"  {name}: {unit}{price:.0f}  {pct:+.2f}%")
+                # 포맷: Name,pct,price,unit,buyPrice,buyQty
+                entries.append(f"{name},{pct:.2f},{price:.2f},{unit},{buy_price:.2f},{buy_qty}")
+                gain_str = ""
+                if buy_price > 0 and buy_qty > 0:
+                    gain_pct = (price - buy_price) / buy_price * 100
+                    gain_amt = (price - buy_price) * buy_qty
+                    gain_str = f"  매수대비 {gain_pct:+.2f}% ({gain_amt:+.0f}{unit})"
+                print(f"  {name}: {unit}{price:.0f}  {pct:+.2f}%{gain_str}")
         except Exception as e:
             print(f"  {ticker} 오류: {e}")
     return "|".join(entries)
