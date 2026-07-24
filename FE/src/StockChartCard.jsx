@@ -48,19 +48,27 @@ function StockChartCard({ stock, analysis }) {
     return prefix + Math.round(v).toLocaleString();
   };
 
-  // 1. 차트 데이터 (주가 + 예측데이터) 구성
+  // 1. 차트 데이터 (주가 + 오늘 + 예측데이터) 구성
   const priceData = historyPrices.map((price, i) => ({
     day: DAYS[i] ?? `${historyPrices.length - i}일전`,
     price,
     predicted: null,
   }));
 
-  // 예측 데이터(Prophet 등) 바인딩 (7일 배열 및 단일 처리 대응)
+  // 오늘 현재가 포인트 추가
+  const todayPrice = analysis?.price || null;
+  if (todayPrice) {
+    priceData.push({
+      day: '오늘',
+      price: Math.round(todayPrice),
+      predicted: null,
+    });
+  }
+
+  // 예측 데이터(Prophet 등) 바인딩
   if (analysis && Array.isArray(analysis.prediction)) {
-    const lastPrice = historyPrices[historyPrices.length - 1];
-    if (priceData.length > 0) {
-      priceData[priceData.length - 1].predicted = lastPrice;
-    }
+    const anchorPrice = todayPrice || historyPrices[historyPrices.length - 1];
+    priceData[priceData.length - 1].predicted = Math.round(anchorPrice);
     analysis.prediction.forEach((p) => {
       priceData.push({
         day: `D+${p.day}`,
@@ -177,7 +185,7 @@ function StockChartCard({ stock, analysis }) {
 
         {/* 주가 차트 타이틀 및 버튼 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>● 주가 흐름 & 예측 (7일)</h3>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>● 주가 흐름 & 예측</h3>
           <div style={{ display: 'flex', gap: 8 }}>
             {realtimeData.length > 0 && (
               <button onClick={() => setShowRealtime(true)} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, border: '1px solid #3B82F6', background: 'transparent', color: '#3B82F6', cursor: 'pointer', fontWeight: 500 }}>
@@ -205,7 +213,7 @@ function StockChartCard({ stock, analysis }) {
             <Line type="monotone" dataKey="predicted" stroke="#F59E0B" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, fill: '#F59E0B', stroke: '#fff', strokeWidth: 1.5 }} connectNulls={true} />
 
             {/* 어제/오늘 구분 기준선 */}
-            <ReferenceLine x="어제" stroke="#d1d5db" strokeDasharray="3 3" />
+            <ReferenceLine x="오늘" stroke="#d1d5db" strokeDasharray="3 3" />
           </ComposedChart>
         </ResponsiveContainer>
 

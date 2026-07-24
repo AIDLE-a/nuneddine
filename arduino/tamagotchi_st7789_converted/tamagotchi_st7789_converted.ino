@@ -19,7 +19,6 @@
 #define TFT_DC   3
 #define TFT_RST  10
 #define BTN      2
-#define BTN_MUTE 8
 #define BUZZER   5
 
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -54,7 +53,7 @@ Adafruit_ST7789 tft(TFT_CS, TFT_DC, TFT_MOSI, TFT_SCLK, TFT_RST);
 struct Stock { char name[10]; float pct; float price; char unit[2]; float buyPrice; int buyQty; };
 Stock stocks[MAX_STOCKS];
 int   stockCount=0, stockIdx=0;
-bool  bleConnected=false, dataReceived=false, silentMode=false;
+bool  bleConnected=false, dataReceived=false;
 
 // 0=HAPPY  1=NORMAL  2=TIRED  3=SICK  4=CRYING  5=SEMI-HAPPY
 byte stateOf(int i){
@@ -67,7 +66,7 @@ byte stateOf(int i){
   if(p > -10.0f) return 4;  // -10~-5%
   return 3;                  // -10% 미만
 }
-void beep(int f,int ms){if(silentMode)return;tone(BUZZER,f,ms);delay(ms+20);}
+void beep(int f,int ms){tone(BUZZER,f,ms);delay(ms+20);}
 void beepHappy(){beep(880,80);beep(1046,80);beep(1318,120);}
 void beepSad()  {beep(440,180);beep(330,250);}
 
@@ -429,17 +428,6 @@ void draw(){
   tft.setTextColor(ST77XX_CYAN); tft.setCursor(58, 6); tft.print(F("DD"));  // 58~81
   tft.setTextColor(0xFFFF);      tft.setCursor(82, 6); tft.print(F("ine")); // 82~117
 
-  // 무음 아이콘 (BT 왼쪽) — 스피커 모양 + X
-  tft.fillRect(180,5,30,15, C_BAR);  // (★ 스케일)
-  uint16_t sc = silentMode ? ST77XX_RED : C_DIM;
-  tft.fillRect(185,9,5,8, sc);   // 스피커 몸통
-  tft.fillRect(190,9,2,8, sc);   // 콘 좁은 부분
-  tft.fillRect(192,7,2,12, sc);  // 콘 퍼지는 부분
-  if(silentMode){
-    tft.drawLine(196,6,202,14, ST77XX_RED);
-    tft.drawLine(202,6,196,14, ST77XX_RED);
-  }
-
   // BT 상태
   if(bleConnected){
     tft.fillRoundRect(210,8, 12,12, 5, ST77XX_CYAN);
@@ -455,7 +443,7 @@ void draw(){
 // ══════════════════════════════════════════════════════════════════════
 void setup(){
   Serial.begin(115200);
-  pinMode(BTN,INPUT_PULLUP); pinMode(BTN_MUTE,INPUT_PULLUP);
+  pinMode(BTN,INPUT_PULLUP);
   pinMode(BUZZER,OUTPUT); digitalWrite(BUZZER,LOW);
   
   // ★ ST7789 초기화 (ST7735와 다름)
@@ -486,15 +474,6 @@ void loop(){
       else if(ns>=2&&ns!=5&&(os==0||os==1||os==5)) beepSad();
     }
     draw();
-  }
-  static bool lastMute=HIGH;
-  bool curMute=digitalRead(BTN_MUTE);
-  if(curMute!=lastMute){
-    delay(50);
-    silentMode=(curMute==LOW);
-    if(!silentMode)beep(1000,60);
-    draw();
-    lastMute=curMute;
   }
   if(dataReceived){dataReceived=false;draw();}
 }

@@ -33,7 +33,7 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
           <span className="card-value loading-dash" style={{ marginTop: 8 }}>----</span>
           <span className="card-sub text-muted loading-dash">----</span>
         </div>
-        {['7일 예측가', '감성 방향', '분석 뉴스'].map((title) => (
+        {['오늘 예측가', '감성 방향', '분석 뉴스'].map((title) => (
           <div key={title} className="card summary-card">
             <span className="card-title">{title}</span>
             <span className="card-value text-muted loading-dash">----</span>
@@ -62,11 +62,11 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
       : stock.change;
     const isPositive = priceChange != null ? priceChange >= 0 : stock.isPositive;
 
-    // 예측가 (배열의 마지막 7일차 대표값 추출)
-    const finalDayPrediction = prediction?.length ? prediction[prediction.length - 1] : null;
-    const formattedPredict = finalDayPrediction ? formatPrice(finalDayPrediction.future_price, currency) : '-';
-    const formattedLower = finalDayPrediction ? formatPrice(finalDayPrediction.lower, currency) : '-';
-    const formattedUpper = finalDayPrediction ? formatPrice(finalDayPrediction.upper, currency) : '-';
+    // 오늘 예측 (prediction[0])
+    const todayPrediction = prediction?.length ? prediction[0] : null;
+    const formattedPredict = todayPrediction ? formatPrice(todayPrediction.future_price, currency) : '-';
+    const formattedLower = todayPrediction ? formatPrice(todayPrediction.lower, currency) : '-';
+    const formattedUpper = todayPrediction ? formatPrice(todayPrediction.upper, currency) : '-';
 
     // 감성
     const posStr = Math.round(sentiment.positive * 100);
@@ -88,7 +88,7 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
           <span className={`card-sub ${isPositive ? 'positive' : 'negative'}`}>{changeStr}</span>
         </div>
         <div className="card summary-card">
-          <span className="card-title">7일 예측가</span>
+          <span className="card-title">오늘 예측가</span>
           <span className="card-value">{formattedPredict}</span>
           <span className="card-sub text-muted">{formattedLower} ~ {formattedUpper}</span>
         </div>
@@ -114,7 +114,7 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
         <span className={`card-sub ${stock.isPositive ? 'positive' : 'negative'}`}>{stock.change}</span>
       </div>
       <div className="card summary-card">
-        <span className="card-title">7일 예측가</span>
+        <span className="card-title">오늘 예측가</span>
         <span className="card-value">{stock.predict7d}</span>
         <span className="card-sub text-muted">{stock.range}</span>
       </div>
