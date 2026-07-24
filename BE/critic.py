@@ -278,25 +278,80 @@ def _calc_confidence(
     sentiment_result: SentimentResult,
     prediction_result: PredictionResult
 ) -> int:
-    """0~100 종합 신뢰도 점수 — 뉴스량 / 감성 명확성 / 예측 변동성 가중 평균"""
-    # 1. 뉴스 데이터량 점수 (최대 10개 기준)
-    news_count = len(data_result.news) if data_result and getattr(data_result, "news", None) else 0
-    news_score = min(news_count / 10.0, 1.0) * 100
-
-    # 2. 감성 명확성 점수 (|긍정 - 부정|)
-    if sentiment_result and getattr(sentiment_result, "sentiment", None):
-        sentiment = sentiment_result.sentiment
-        sentiment_score = abs(sentiment.positive - sentiment.negative) * 100
-    else:
-        sentiment_score = 50.0
-
-    # 3. 예측 변동성 점수 (보수적 반영)
-    spread_ratio = _get_worst_spread_ratio(prediction_result)
-    volatility_score = max(0.0, 100.0 - (spread_ratio * 500.0))
-
-    # 가중 평균 (뉴스 30% / 감성 30% / 시계열 변동성 40%)
-    score = (news_score * 0.3) + (sentiment_score * 0.3) + (volatility_score * 0.4)
+    """
+    종합 신뢰도 0~100점
     
-    # 최소 10점 ~ 최대 99점 범위로 클리핑
-    final_score = int(round(score))
-    return max(10, min(99, final_score))
+    ① 데이터 품질 (25%)
+       - 뉴스 수 + 뉴스 에이전트 신뢰도
+    ② 신호 일치도 (35%)
+       - 감성/수급/재무/모멘텀 알파가 같은 방향인가
+    ③ 예측 안정성 (25%)
+       - 신뢰구간이 좁고 Prophet 신뢰도가 높은가
+    ④ 시장 뒷받침 (15%)
+       - 코스피 트렌드 + 외국인 수급
+    """
+
+    # ① 데이터 품질 점수
+    news_count = len(data_result.news) if getattr(data_result, "news", None) else 0
+    news_qty_score = min(news_count / 50.0, 1.0)  # 50개면 만점
+    news_conf = getattr(getattr(data_result, "news_uncertainty", None), "confidence", 0.75)
+    data_quality = (news_qty_score * 0.4 + news_conf * 0.6) * 100
+
+    # ② 신호 일치도 점수 (핵심!)
+    sentiment_alpha = getattr(getattr(sentiment_result, "alpha", None), "sentiment_alpha", 0)
+    flow_alpha = getattr(data_result, "flow_alpha", 0)
+    financial_alpha = getattr(data_result, "financial_alpha", 0)
+    momentum_alpha = getattr(data_result, "momentum_alpha", 0)
+
+    alphas = [sentiment_alpha, flow_alpha, financial_alpha, momentum_alpha]
+    pos = sum(1 for a in alphas if a > 0.05)
+    neg = sum(1 for a in alphas if a < -0.05)
+    neutral = len(alphas) - pos - neg
+
+    # 모두 같은 방향이면 100점, 반반이면 30점
+    max_consensus = max(pos, neg)
+    consensus_ratio = max_consensus / len(alphas)
+    signal_consensus = 30 + (consensus_ratio * 70)  # 30~100점
+
+    # 신호 강도 (강할수록 신뢰도 높음)
+    avg_strength = sum(abs(a) for a in alphas) / len(alphas)
+    strength_score = min(avg_strength / 0.5, 1.0) * 100  # 평균 0.5면 만점
+
+    signal_score = signal_consensus * 0.7 + strength_score * 0.3
+
+    # ③ 예측 안정성 점수
+    spread_ratio = _get_worst_spread_ratio(prediction_result)
+    # 신뢰구간이 현재가의 10% 이내면 만점
+    spread_score = max(0.0, 1.0 - (spread_ratio / 0.10)) * 100
+    spread_score = max(0, min(100, spread_score))
+
+    # Prophet 자체 신뢰도
+    pred_conf = 0
+    if prediction_result and prediction_result.prediction:
+        confs = [p.confidence_score for p in prediction_result.prediction]
+        pred_conf = sum(confs) / len(confs)
+
+    prediction_stability = spread_score * 0.5 + pred_conf * 0.5
+
+    # ④ 시장 뒷받침 점수
+    market_index = getattr(data_result, "market_index", {}) or {}
+    kospi = market_index.get("kospi", {})
+    kospi_5d = kospi.get("change_5d", 0)
+    kospi_score = 50 + (kospi_5d * 500)  # 5일 +10% 상승이면 100점
+    kospi_score = max(0, min(100, kospi_score))
+
+    foreign = getattr(data_result, "foreign_history", []) or []
+    foreign_3d = sum(foreign[:3]) if len(foreign) >= 3 else 0
+    foreign_score = 70 if foreign_3d > 0 else 30  # 순매수면 70, 순매도면 30
+
+    market_support = kospi_score * 0.5 + foreign_score * 0.5
+
+    # 최종 가중 평균
+    final = (
+        data_quality        * 0.25 +
+        signal_score        * 0.35 +
+        prediction_stability * 0.25 +
+        market_support      * 0.15
+    )
+
+    return max(10, min(99, int(round(final))))
