@@ -31,7 +31,13 @@ _CACHE_TTL = 3600
 # 1. 메인 인터페이스 (오케스트레이터 호출용)
 # ==========================================
 
-def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult:
+def predict(
+    ticker: str,
+    price: float,
+    sentiment: Sentiment,
+    market_index: dict = None,
+    target_mean_price: float = None,
+) -> PredictionResult:
     """오케스트레이터가 호출하는 최상위 예측 함수"""
     if USE_MOCK:
         base = _get_mock_prediction(price)
@@ -44,6 +50,18 @@ def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult
 
     # 2단계 감성 분석 결과(Sentiment)로 예측치 보정
     adjusted = [_adjust_with_sentiment(day, sentiment) for day in base]
+
+    # 코스피 시장 트렌드 보정
+    if market_index:
+        adjusted = [_adjust_with_market(day, market_index) for day in adjusted]
+        print(f"📈 코스피 보정 적용: {market_index.get('kospi', {}).get('trend', '-')}")
+
+    # 증권사 목표주가 보정
+    if target_mean_price and price:
+        adjusted = [_adjust_with_analyst_target(day, price, target_mean_price) for day in adjusted]
+        upside = (target_mean_price - price) / price * 100
+        print(f"🎯 증권사 목표주가 보정 적용: 업사이드 {upside:.1f}%")
+
     prediction_warning = _check_prediction_uncertainty(adjusted)
 
     return PredictionResult(
@@ -84,6 +102,53 @@ def _run_prophet(ticker: str, price: float) -> list[Prediction]:
     _cache[ticker] = {"predictions": predictions, "ts": time.time()}
     return predictions
 
+
+
+def _adjust_with_market(prediction: Prediction, market_index: dict) -> Prediction:
+    """
+    코스피/코스닥 시장 트렌드로 예측치 보정
+    시장 전체가 오르면 개별 종목도 소폭 상방 보정
+    """
+    kospi = market_index.get("kospi", {})
+    change_5d = kospi.get("change_5d", 0)
+
+    # 5일 시장 변화율의 30%만 반영 (과도한 보정 방지)
+    market_adjustment = 1 + (change_5d * 0.3)
+    market_adjustment = max(0.98, min(1.02, market_adjustment))  # ±2% 제한
+
+    return Prediction(
+        day=prediction.day,
+        future_price=round(prediction.future_price * market_adjustment, 1),
+        lower=round(prediction.lower * market_adjustment, 1),
+        upper=round(prediction.upper * market_adjustment, 1),
+        confidence_score=prediction.confidence_score,
+    )
+
+
+def _adjust_with_analyst_target(
+    prediction: Prediction,
+    current_price: float,
+    target_mean_price: float,
+) -> Prediction:
+    """
+    증권사 평균 목표주가로 예측치 보정
+    목표주가 방향으로 약하게 수렴하는 보정
+    """
+    if current_price <= 0 or target_mean_price <= 0:
+        return prediction
+
+    upside = (target_mean_price - current_price) / current_price
+    # 단기(7일) 예측이므로 목표주가의 3%만 반영
+    analyst_adjustment = 1 + (upside * 0.03)
+    analyst_adjustment = max(0.99, min(1.01, analyst_adjustment))  # ±1% 제한
+
+    return Prediction(
+        day=prediction.day,
+        future_price=round(prediction.future_price * analyst_adjustment, 1),
+        lower=round(prediction.lower * analyst_adjustment, 1),
+        upper=round(prediction.upper * analyst_adjustment, 1),
+        confidence_score=prediction.confidence_score,
+    )
 
 def _adjust_with_sentiment(prediction: Prediction, sentiment: Sentiment) -> Prediction:
     """감성 점수(Positive - Negative)로 7일간 주가 예측치 보정"""
