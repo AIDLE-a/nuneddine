@@ -221,6 +221,39 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
         keywords = xai_keywords
     volatility = _calc_volatility(scored)
 
+    # Groq LLM으로 키워드 + 트렌드 + 신뢰도 보완
+    llm_result = _llm_sentiment_analysis(news, sentiment)
+    if llm_result:
+        pos_kw = llm_result.get("positive_keywords", [])
+        neg_kw = llm_result.get("negative_keywords", [])
+        if pos_kw or neg_kw:
+            kw_parts = []
+            if pos_kw: kw_parts.append("긍정: " + ", ".join(pos_kw[:3]))
+            if neg_kw: kw_parts.append("부정: " + ", ".join(neg_kw[:2]))
+            keywords = " / ".join(kw_parts)
+        
+        # 트렌드 LLM 결과로 보완
+        if llm_result.get("trend") and trend is None:
+            llm_trend = llm_result.get("trend")
+            llm_reason = llm_result.get("trend_reason", "")
+            direction = llm_trend
+            trend = SentimentTrend(
+                direction=direction,
+                recent_score=round(sentiment.positive, 3),
+                old_score=round(sentiment.positive - 0.05 if llm_trend == "개선" else sentiment.positive + 0.05, 3),
+                change=round(0.05 if llm_trend == "개선" else -0.05 if llm_trend == "악화" else 0, 3),
+            )
+        
+        # LLM 신뢰도로 보완
+        llm_confidence = llm_result.get("confidence", None)
+        llm_summary = llm_result.get("summary", "")
+        if llm_summary:
+            print(f"📝 LLM 감성 요약: {llm_summary}")
+        
+        # 감성 경고에 LLM 신뢰도 반영
+        if llm_confidence is not None and llm_confidence < 0.5 and not warnings:
+            warnings.append(f"LLM 감성 신뢰도 낮음 ({llm_confidence:.0%})")
+
     # 퀀트 알파 팩터 계산
     alpha = _calc_sentiment_alpha(sentiment, scored, volatility or 0)
     print(f"📈 감성 알파 팩터: {alpha.sentiment_alpha:.3f} ({alpha.signal})")
@@ -430,6 +463,68 @@ def _calc_sentiment_alpha(sentiment: Sentiment, scored: list[dict], volatility: 
         composite_alpha=round(adjusted_alpha, 3),
         signal=signal,
     )
+
+
+def _llm_sentiment_analysis(news_list: list, sentiment: "Sentiment") -> dict:
+    """
+    Groq LLM으로 감성 키워드 + 트렌드 + 신뢰도 보완
+    FinBERT 점수를 유지하면서 맥락 이해 기반 키워드 추출
+    """
+    try:
+        import os
+        from groq import Groq
+        from dotenv import load_dotenv
+        from pathlib import Path
+        load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+
+        api_key = os.getenv("GROQ_API_KEY", "")
+        if not api_key:
+            return {}
+
+        client = Groq(api_key=api_key)
+
+        # 상위 10개 뉴스 제목 + description
+        top_news = []
+        for n in news_list[:10]:
+            title = getattr(n, "title", "")
+            desc = getattr(n, "description", "") or ""
+            top_news.append(f"- {title} {desc[:50]}")
+        news_text = "\n".join(top_news)
+
+        prompt = f"""주식 투자 관점에서 다음 뉴스들을 분석하세요.
+현재 감성 분석: 긍정 {sentiment.positive:.1%} / 부정 {sentiment.negative:.1%}
+
+뉴스 목록:
+{news_text}
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 텍스트 없이 JSON만:
+{{
+  "positive_keywords": ["키워드1", "키워드2", "키워드3"],
+  "negative_keywords": ["키워드1", "키워드2"],
+  "trend": "개선" or "악화" or "보합",
+  "trend_reason": "한 문장 이유",
+  "confidence": 0.0~1.0,
+  "summary": "뉴스 전체 흐름 한 문장 요약"
+}}"""
+
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+            temperature=0.1,
+        )
+
+        import json, re
+        text = response.choices[0].message.content
+        # JSON 추출
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+        return {}
+
+    except Exception as e:
+        print(f"⚠️ LLM 감성 보완 실패: {e}")
+        return {}
 
 def _get_mock_sentiment() -> SentimentResult:
     return SentimentResult(
