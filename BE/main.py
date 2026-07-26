@@ -215,7 +215,6 @@ def related_stocks(ticker: str):
             base_sector_en = ""
             base_sector_kr = ""
 
-        # ── 야후 추천 API 결과 미리 받아두기 (1차 candidate pool 보강 + 2차 폴백에 재사용) ──
         yahoo_symbols = []
         try:
             url = f"https://query2.finance.yahoo.com/v6/finance/recommendationsbysymbol/{ticker}"
@@ -225,7 +224,6 @@ def related_stocks(ticker: str):
         except Exception:
             pass
 
-        # ── 1차: 하이브리드 추천 시스템 (CSV 확장 후보군 우선 사용) ──
         candidate_pool = heesun_recommend.get_expanded_candidate_pool(ticker, base_sector_kr)
         if not candidate_pool:
             candidate_pool = list(yahoo_symbols)
@@ -266,7 +264,6 @@ def related_stocks(ticker: str):
                         "cf_weight": hybrid_result["cf_weight"],
                     }
 
-        # ── 2차 폴백: 야후 추천 API 단독 (섹터 필터링) ──
         if yahoo_symbols:
             with ThreadPoolExecutor(max_workers=8) as ex:
                 info_map = dict(ex.map(_get_info, yahoo_symbols))
@@ -285,7 +282,6 @@ def related_stocks(ticker: str):
             if results:
                 return {"results": results[:6], "cf_weight": 0}
 
-        # ── 3차 폴백: 섹터 기반 하드코딩 목록 ──
         if base_sector_kr:
             fallback = _SECTOR_FALLBACK.get(base_sector_kr, [])
             results = [
@@ -496,10 +492,6 @@ async def login_check(authorization: str = Header(None)):
 # ── 희선 담당 (추천시스템 오프라인 평가 리포트 API) ──
 @app.get("/api/evaluation")
 def get_evaluation_report(force_refresh: bool = False):
-    """
-    연관 종목 추천 시스템 오프라인 평가(Coverage, Diversity, Novelty, Accuracy, Speed)를 수행하고
-    결과 리포트를 반환합니다. (JSON 직렬화 안정성 보장)
-    """
     global EVALUATION_CACHE
 
     if EVALUATION_CACHE and not force_refresh:
@@ -509,13 +501,10 @@ def get_evaluation_report(force_refresh: bool = False):
         test_tickers = ["005930.KS", "000660.KS", "035420.KS", "064400.KS"]
         raw_report = run_full_evaluation(test_tickers)
         
-        # 💡 numpy float64 및 dict 포맷을 표준 Python dict/float 구조로 변환
         import json
         json_safe_report = json.loads(json.dumps(raw_report, default=str))
 
-        # 프론트엔드가 요구하는 구조(summary, details) 보장
         if "summary" not in json_safe_report and "per_ticker" in json_safe_report:
-            # heesun_recommend_eval.py가 구버전 구조일 경우 호환 변환
             per_ticker = json_safe_report.get("per_ticker", {})
             details = []
             div_list, nov_list, acc_list, spd_list = [], [], [], []
@@ -573,20 +562,20 @@ def get_evaluation_report(force_refresh: bool = False):
 @app.get("/api/analyze", response_model=StockAnalysisResponse)
 def analyze(ticker: str = "005930.KS"):
     try:
-        # 1단계: 뉴스 수집 및 주가 기본 데이터 수집 (yubin_stock.py 사용)
+        # 1단계: 뉴스 수집 및 주가 기본 데이터 수집
         data_result = data_service.get_stock_data(ticker)
+        stock_name = _KR_NAME_MAP.get(ticker, ticker)
         
-        # 2단계: 뉴스 감성 분석 및 XAI (yeonwoo_sentiment.py 사용)
-        # ── 에이전트 간 메시지 전달: 뉴스 신뢰도 → 감성 에이전트 ──
+        # 2단계: 뉴스 감성 분석 및 XAI
         news_confidence = getattr(getattr(data_result, "news_uncertainty", None), "confidence", 1.0)
         sentiment_result = sentiment_service.analyze(data_result.news, news_confidence=news_confidence)
         
-        # 3단계: Prophet 기반 7일 주가 예측 (heesun_forecast.py 사용)
+        # 3단계: Prophet 기반 7일 주가 예측
         prediction_result = prediction_service.predict(
             ticker, data_result.price, sentiment_result.sentiment
         )
         
-        # 4단계: Critic 모순 검증 (critic.py 사용)
+        # 4단계: Critic 모순 검증
         warnings, confidence_score, llm_report = critic.review(
             data_result, sentiment_result, prediction_result
         )
@@ -594,6 +583,33 @@ def analyze(ticker: str = "005930.KS"):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+    #yeonwoo_sentiment.py의 explanation 스키마(type/title/chips/url)에 맞춤.
+    pos_pct = int(sentiment_result.sentiment.positive * 100)
+    neg_pct = int(sentiment_result.sentiment.negative * 100)
+
+    raw_explanation = getattr(sentiment_result, "explanation", []) or []
+    if raw_explanation and hasattr(raw_explanation[0], "dict"):
+        raw_explanation = [item.dict() for item in raw_explanation]
+
+    if not raw_explanation:
+        # 실제 근거가 없으면 지어내지 않고 있는 그대로 알림
+        raw_explanation = [{
+            "type": "neutral",
+            "title": "이번 분석에서는 호재/악재를 구분할 만큼 뉴스 근거가 충분하지 않습니다.",
+            "chips": [],
+            "url": "#",
+        }]
+
+    summary_text = getattr(sentiment_result, "top_keywords", None)
+    if not summary_text or isinstance(summary_text, list):
+        if isinstance(summary_text, list) and len(summary_text) > 0:
+            summary_text = f"주요 이슈 키워드({', '.join(summary_text[:3])})를 바탕으로 수급 흐름을 점검했습니다."
+        else:
+            summary_text = (
+                f"최근 수집된 {len(data_result.news)}건의 뉴스를 분석한 결과 "
+                f"{stock_name}의 긍정 비율은 {pos_pct}%, 부정 비율은 {neg_pct}%입니다."
+            )
 
     response = StockAnalysisResponse(
         ticker=data_result.ticker,
@@ -611,9 +627,9 @@ def analyze(ticker: str = "005930.KS"):
         sentiment=sentiment_result.sentiment,
         warnings=warnings,
         confidence_score=confidence_score,
-        explanation=sentiment_result.explanation,
+        explanation=raw_explanation,   # 👈 contribution 보장된 근거 전달
         trend=sentiment_result.trend,
-        top_keywords=sentiment_result.top_keywords,
+        top_keywords=summary_text,     # 👈 종목별 유일 요약문 전달
         volatility=sentiment_result.volatility,
         volume_analysis=getattr(prediction_result, "volume_analysis", None),
         news_agent_report=getattr(getattr(data_result, "news_uncertainty", None), "reasoning", None),

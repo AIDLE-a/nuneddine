@@ -62,6 +62,7 @@ class NewsItem(BaseModel):
     published_at: str
     description: Optional[str] = None  # 뉴스 요약 (감성 분석 정확도 향상용)
 
+
 # ── 베이지안 불확실성 구조 (Uncertainty-aware Agent) ──
 class UncertaintyResult(BaseModel):
     """
@@ -73,13 +74,13 @@ class UncertaintyResult(BaseModel):
     confidence: float   # 최종 신뢰도 (0~1)
     reasoning: str      # 판단 이유
 
+
 class NewsAgentResult(BaseModel):
     """뉴스 에이전트 결과 — 불확실성 포함"""
     news: List[NewsItem]
     uncertainty: UncertaintyResult
     retry_count: int = 0
     info_warning: Optional[str] = None
-
 
 
 class StockDataResult(BaseModel):
@@ -110,17 +111,34 @@ class Sentiment(BaseModel):
 
 
 class WordContribution(BaseModel):
-    """XAI 설명 — 단어별 감성 기여도"""
+    """XAI 설명 — 단어별 감성 기여도 (레거시, FinBERT 폴백에서 일부 참고용으로 유지)"""
     word: str
     contribution: float
 
 
+class NewsInsight(BaseModel):
+    """
+    호재/악재 뉴스 인사이트 항목.
+    - title: 화면 메인에 노출되는 '이유' 문장
+        · LLM 브리핑 성공 시: LLM이 생성한 요약 문장
+        · LLM 실패 시(FinBERT XAI 폴백): chips 키워드를 조합해 만든 합성 문장
+          (예: "HBM 공급·AI 투자 관련 이슈로 긍정적 신호")
+    - source_title: 근거가 된 원본 뉴스 제목. 화면에는 작은 출처 캡션 + url 링크로 노출.
+    - 뉴스 근거 자체가 없을 때: type="neutral"로 표시
+    """
+    type: str  # "positive" | "negative" | "neutral"
+    title: str
+    source_title: Optional[str] = None
+    chips: List[str] = []
+    url: str = "#"
+
+
 class SentimentTrend(BaseModel):
-    """감성 추세 — 최근 기사 vs 이전 기사 비교"""
-    direction: str
-    recent_score: float
-    old_score: float
-    change: float
+    """최근 vs 이전 기간 감성 추세 비교 (yeonwoo_sentiment.py의 _calc_trend 참고)"""
+    direction: str        # "긍정 방향으로 개선 중" | "부정 방향으로 악화 중" | "보합"
+    recent_score: float   # 최근 기간(time_weight >= 0.7) 평균 감성 점수
+    old_score: float       # 이전 기간(0.2 <= time_weight < 0.7) 평균 감성 점수
+    change: float          # recent_score - old_score
 
 
 class AlphaFactor(BaseModel):
@@ -132,16 +150,18 @@ class AlphaFactor(BaseModel):
     composite_alpha: float = 0.0    # 종합 알파 (-1 ~ +1)
     signal: str = "중립"           # 강한매수/매수/중립/매도/강한매도
 
+
 class SentimentResult(BaseModel):
     """연우가 만드는 결과물 — 감성 불확실성을 스스로 판단해서 같이 반환"""
     sentiment: Sentiment
-    explanation: List[WordContribution] = []
+    explanation: List[NewsInsight] = []   # ← WordContribution에서 변경
     sentiment_warning: Optional[str] = None
     trend: Optional[SentimentTrend] = None
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
-
     alpha: Optional[AlphaFactor] = None  # 퀀트 알파 팩터
+    calculation_note: Optional[str] = None  # 긍정/부정 비율 계산 방식 설명 (상세보기용)
+
 
 # ── 희선 담당: 예측 에이전트 결과 형식 ──
 class Prediction(BaseModel):
@@ -186,18 +206,15 @@ class StockAnalysisResponse(BaseModel):
     sentiment: Sentiment
     warnings: List[str]
     confidence_score: int
-    explanation: List[WordContribution] = []
+    explanation: List[NewsInsight] = []
     trend: Optional[SentimentTrend] = None
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
+    calculation_note: Optional[str] = None  # 긍정/부정 비율 계산 방식 설명 (상세보기용)
     volume_analysis: Optional[str] = None  # [★추가] 리포트에 들어갈 거래량 분석 요약 문구
     news_agent_report: Optional[str] = None  # 뉴스 에이전트 분석 리포트
     news_agent_confidence: Optional[float] = None  # 뉴스 에이전트 신뢰도
     news_agent_epistemic: Optional[float] = None   # Epistemic 불확실성
     news_agent_aleatoric: Optional[float] = None   # Aleatoric 불확실성
     critic_report: Optional[str] = None  # LLM Critic 에이전트 리포트
-    flow_alpha: float = 0.0       # 수급 알파 팩터
-    financial_alpha: float = 0.0  # 재무 알파 팩터
-    momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
-    composite_alpha: float = 0.0  # 종합 알파 팩터sed -n '52,60p' ~/nuneddine/BE/yubin_data.py
-    
+    composite_alpha: float = 0.0  # 종합 알파 팩터

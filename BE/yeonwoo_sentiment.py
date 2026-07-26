@@ -2,15 +2,37 @@
 [감성 분석 및 XAI 레이어 — 담당: 연우]
 
 1. 한국어/영어 금융 특화 RoBERTa/FinBERT 모델 자동 분기
-2. 제목 + description 결합 분석으로 정확도 향상
-3. 시간 가중치 + 언론사 신뢰도 결합 가중 감성 점수 산출
-4. Leave-one-out 기반 단어별 기여도(XAI) 계산
-5. 4대 불확실성 경고 리포팅
+2. 시간 가중치 + 언론사 신뢰도 결합 가중 감성 점수 산출
+3. LLM 기반 종합 브리핑, 호재/악재 뉴스 분리 및 뉴스 칩(Chip) 생성
+4. 불확실성 경고 및 알파 요소 산출
+
+⚠️ 수정 노트:
+   1) LLM에 제목만 주던 것 → description도 함께 제공해서 근거를 좁힘
+   2) 프롬프트에 "원문에 없는 정보는 만들어내지 말 것" 명시 → 수치 환각 방지
+   3) LLM 호출 실패/파싱 실패 시 FinBERT XAI 기반 폴백 추가
+      → LLM이 죽어도 화면이 완전히 비지 않고 최소한의 분석 결과를 보여줌
+      (팀 컨셉 "AI가 자기 한계를 아는 시스템"과 일치)
+   4) [★추가] 폴백 로직을 "기사 1개 내 단어 기여도"에서 "기사 여러 개 중 호재/악재
+      기사를 각각 선정"하는 방식으로 변경
+      → 이전에는 카드 2개가 항상 같은 기사에서 나와서 중복/편향 문제가 있었음
+   5) [★추가] 폴백 카드의 메인 문구를 원본 뉴스 제목 그대로 노출하지 않고,
+      XAI로 뽑은 키워드(chips)를 조합한 합성 문장으로 대체
+      (예: "HBM 공급·AI 투자 관련 이슈로 긍정적 신호")
+      원본 제목은 source_title로 분리해 출처 캡션/링크 용도로만 사용
+   6) [★추가 2] LLM 성공 경로에서 source_title이 빠져있어서 프론트에서
+      링크/출처 캡션이 안 뜨던 문제 수정 → url로 원본 뉴스를 찾아 source_title 채움
+   7) [★추가 2] 프롬프트의 "1~2개" 제한을 "최대 4개"로 완화 → 상세보기 개수 확장
+   8) [★추가 3] 항목 개수가 늘어나면서 LLM이 만드는 JSON에 콤마 누락 등
+      문법 오류가 생겨 파싱(json.loads) 실패가 발생 → Groq의 response_format
+      JSON 모드를 강제해서 모델이 유효한 JSON만 생성하도록 하고,
+      혹시 그래도 깨질 경우를 대비해 trailing comma 등 흔한 오류를
+      자동 보정하는 _safe_json_parse()를 추가
 """
 
 import os
 import re
 import math
+import json
 from typing import List, Optional
 from datetime import datetime, timezone
 
@@ -24,20 +46,27 @@ from schemas import Sentiment, WordContribution, SentimentResult, SentimentTrend
 
 USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
 
-# XAI에서 제외할 노이즈 단어 (숫자/단위/일반명사)
-XAI_STOPWORDS = {
-    "억원", "조원", "만원", "원", "주", "건", "명", "개", "위",
-    "관련", "통해", "대한", "위한", "따른", "의한", "이후", "이전",
-    "지난", "올해", "내년", "최근", "현재", "오늘", "어제",
-    "삼성전자", "sk하이닉스", "하이닉스", "삼성", "전자",
-}
-
 SOURCE_TRUST = {
     "한국경제": 1.0, "매경": 1.0, "조선비즈": 1.0, "연합뉴스": 1.0,
     "서울경제": 0.9, "이데일리": 0.9, "머니투데이": 0.9, "헤럴드경제": 0.9,
     "bloomberg": 1.0, "reuters": 1.0, "cnbc": 1.0, "wsj": 1.0,
 }
 DEFAULT_TRUST = 0.6
+
+# ── 폴백 XAI에서 제외할 노이즈 단어 ──
+XAI_STOPWORDS = {
+    "억원", "조원", "만원", "원", "주", "건", "명", "개", "위",
+    "관련", "통해", "대한", "위한", "따른", "의한", "이후", "이전",
+    "지난", "올해", "내년", "최근", "현재", "오늘", "어제",
+    "필요", "놓고", "검증", "충분한", "및", "등", "이번", "가운데",
+}
+_JOSA_PATTERN_1 = r"(에서|으로|에게|까지|이나|이고|하고|이며|지만)$"
+_JOSA_PATTERN_2 = r"(의|에|을|를|이|가|은|는|와|과|로|도|만|인)$"
+
+# ── 폴백 호재/악재 선정 기준 ──
+POS_THRESHOLD = 0.55        # 기사 점수가 이보다 높으면 "호재" 후보
+NEG_THRESHOLD = 0.45        # 기사 점수가 이보다 낮으면 "악재" 후보
+MAX_ITEMS_PER_SIDE = 5      # 호재/악재 각각 최대 몇 개까지 후보로 뽑을지 (프론트 "더보기" 탭용)
 
 _pipe_ko = None
 _pipe_en = None
@@ -60,7 +89,6 @@ def _get_pipe_en():
 
 
 def _get_pipe_for(text: str):
-    """텍스트 언어 판별 후 적절한 파이프라인 반환"""
     if HAS_LANGDETECT:
         try:
             lang = detect(text)
@@ -81,7 +109,6 @@ def _parse_date(date_str: str) -> datetime:
 
 
 def _time_weight(news_item) -> float:
-    """최신 뉴스일수록 높은 가중치"""
     pub_dt = _parse_date(news_item.published_at)
     days_old = (datetime.now(timezone.utc) - pub_dt).days
     if days_old <= 1:   return 1.0
@@ -91,7 +118,6 @@ def _time_weight(news_item) -> float:
 
 
 def _source_weight(news_item) -> float:
-    """출처 신뢰도 가중치"""
     source = getattr(news_item, "source", "") or ""
     for key, weight in SOURCE_TRUST.items():
         if key.lower() in source.lower():
@@ -100,17 +126,14 @@ def _source_weight(news_item) -> float:
 
 
 def _build_text(news_item) -> str:
-    """제목 + description 결합 텍스트 생성"""
     title = news_item.title or ""
     desc = getattr(news_item, "description", "") or ""
-    # description이 제목과 너무 비슷하면 제목만 사용
     if desc and desc[:20] not in title[:20]:
         return f"{title}. {desc}".strip()
     return title
 
 
 def _score_one(text: str, pipe) -> float:
-    """0~1 범위 감성 점수 반환 (1=긍정, 0=부정)"""
     if not text:
         return 0.5
     try:
@@ -124,15 +147,104 @@ def _score_one(text: str, pipe) -> float:
         return 0.5
 
 
-def _explain(text: str, pipe, top_k: int = 4) -> list[dict]:
-    """XAI — Leave-one-out 단어별 기여도 계산"""
+def _strip_josa(word: str) -> str:
+    """단어 끝에 붙은 한국어 조사를 제거 (폴백 XAI용)"""
+    clean = re.sub(_JOSA_PATTERN_1, "", word)
+    clean = re.sub(_JOSA_PATTERN_2, "", clean)
+    return clean
+
+
+def _clean_title(title: str, max_len: int = 40) -> str:
+    """뉴스 제목에서 언론사명/블로그명 접미사를 제거하고 길이를 다듬음 (출처 캡션용)"""
+    if not title:
+        return title
+    cleaned = re.sub(r"\s*[-:|]\s*[^\-:|]{1,15}$", "", title).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].rstrip() + "..."
+    return cleaned
+
+
+def _compute_corpus_stopwords(scored: list[dict], min_ratio: float = 0.35) -> set:
+    """
+    [★추가] 여러 기사에 공통으로 등장하는 단어(주로 종목명/티커)를 계산해서
+    XAI 키워드 후보에서 제외하기 위한 함수.
+    종목명은 거의 모든 기사에 등장해서 leave-one-out 기여도가 항상 높게 나오지만,
+    "이 기사가 왜 호재/악재인지"를 설명하는 데는 의미가 없음.
+    → 전체 기사 중 min_ratio 이상 비율로 등장하는 단어는 후보에서 제외.
+    """
+    from collections import Counter
+    doc_word_sets = []
+    for s in scored:
+        clean_text = re.sub(r'[^\w\s]', ' ', s["text"])
+        words = {_strip_josa(w) for w in clean_text.split() if len(w) > 1}
+        doc_word_sets.append(words)
+
+    n = len(doc_word_sets)
+    if n == 0:
+        return set()
+
+    counter = Counter()
+    for words in doc_word_sets:
+        for w in words:
+            counter[w] += 1
+
+    return {w for w, c in counter.items() if c / n >= min_ratio}
+
+
+def _build_calculation_note(scored: list[dict], news_confidence: float) -> str:
+    """[★추가] 긍정/부정 비율이 어떻게 계산되는지 설명하는 문구 (상세보기에서 노출)"""
+    n = len(scored)
+    if n == 0:
+        return "분석에 사용된 뉴스가 없습니다."
+    avg_source_weight = round(sum(s["source_weight"] for s in scored) / n, 2)
+    avg_time_weight = round(sum(s["time_weight"] for s in scored) / n, 2)
+    return (
+        f"총 {n}건의 뉴스를 분석했습니다. 각 뉴스는 ① 발행 시점이 최근일수록 높은 가중치"
+        f"(1일 이내 1.0배 → 7일 이후 0.2배), ② 언론사 신뢰도(이번 분석 평균 {avg_source_weight}배), "
+        f"③ 뉴스 수집 신뢰도({round(news_confidence, 2)}배)를 곱해 가중치를 매긴 뒤, "
+        f"긍정/부정 점수를 가중 평균하여 비율을 산출합니다. "
+        f"(이번 분석의 평균 시간 가중치: {avg_time_weight})"
+    )
+
+
+def _build_reason_text(chips: list[str], is_positive: bool) -> str:
+    """XAI로 뽑은 키워드(chips)를 조합해 '왜 호재/악재인지' 문장을 합성 (LLM 없이)"""
+    if not chips:
+        return "긍정적 신호 감지" if is_positive else "부정적 신호 감지"
+    keyword_str = "·".join(chips)
+    return f"{keyword_str} 관련 이슈로 {'긍정적' if is_positive else '부정적'} 신호"
+
+
+def _dedup_by_title(items: list[dict], limit: int) -> list[dict]:
+    """같은 기사가 중복으로 뽑히는 것 방지"""
+    seen = set()
+    result = []
+    for it in items:
+        title = it["news"].title
+        if title in seen:
+            continue
+        seen.add(title)
+        result.append(it)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def _explain_fallback(text: str, pipe, top_k: int = 2, extra_stopwords: set = frozenset()) -> list[dict]:
+    """
+    LLM 실패 시 사용하는 FinBERT Leave-one-out 기반 폴백 XAI.
+    LLM만큼 풍부하진 않지만, 최소한 근거 있는 단어 기여도를 보여줌.
+
+    extra_stopwords: [★추가] 종목명처럼 거의 모든 기사에 공통으로 등장해서
+    변별력이 없는 단어들을 추가로 제외하기 위한 집합.
+    """
     if not text:
         return []
 
-    # 특수문자를 공백으로 바꾼 후 단어 분리 (붙는 현상 방지)
     clean_text = re.sub(r'[^\w\s]', ' ', text)
     clean_text = re.sub(r'\s+', ' ', clean_text).strip()
-    words = [w for w in clean_text.split() if len(w) > 1]  # 1글자 단어 제외
+    words = [w for w in clean_text.split() if len(w) > 1]
 
     if len(words) < 2:
         return []
@@ -144,44 +256,37 @@ def _explain(text: str, pipe, top_k: int = 4) -> list[dict]:
         mod = " ".join(words[:i] + words[i+1:])
         if not mod.strip():
             continue
+        display_word = _strip_josa(word)
         contribs.append({
-            "word": word,
+            "word": display_word,
             "contribution": round(base - _score_one(mod, pipe), 3)
         })
 
-    # 노이즈 단어 및 숫자/금액 패턴 제외
     contribs = [
         c for c in contribs
         if c["word"].lower() not in XAI_STOPWORDS
-        and not re.search(r"[0-9]", c["word"])  # 숫자 포함 단어 제외
-        and not c["word"].endswith("은") and not c["word"].endswith("는")
-        and not c["word"].endswith("보다") and not c["word"].endswith("에서")
+        and c["word"] not in extra_stopwords
+        and not re.search(r"[0-9]", c["word"])
         and len(c["word"]) > 1
+        and not (c["word"].isascii() and len(c["word"]) <= 3)
     ]
     contribs.sort(key=lambda x: abs(x["contribution"]), reverse=True)
     return contribs[:top_k]
 
 
 def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
-    """메인 함수 — 오케스트레이터가 이 함수만 호출함"""
+    """메인 감성 분석 함수"""
     if USE_MOCK or not news:
         return _get_mock_sentiment()
 
     pipe = _get_pipe_for(news[0].title)
 
-    # ── 에이전트 간 메시지 수신 ──
-    # 뉴스 에이전트로부터 신뢰도를 받아서 가중치 조정
-    if news_confidence < 0.7:
-        print(f"📨 뉴스 에이전트 메시지 수신: 신뢰도 {news_confidence:.2f} → 감성 가중치 하향 조정")
-
     scored = []
     for n in news[:20]:
-        # ✨ 제목 + description 결합 텍스트로 분석
         text = _build_text(n)
         score = _score_one(text, pipe)
         tw = _time_weight(n)
         sw = _source_weight(n)
-        # ✨ 뉴스 신뢰도가 낮으면 전체 가중치 낮춤
         confidence_weight = news_confidence if news_confidence >= 0.7 else news_confidence * 0.8
         scored.append({
             "news": n,
@@ -192,85 +297,141 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
             "combined_weight": tw * sw * confidence_weight,
         })
 
-    sentiment  = _calc_weighted_sentiment(scored)
+    sentiment = _calc_weighted_sentiment(scored)
+    calculation_note = _build_calculation_note(scored, news_confidence)  # [★추가]
 
-    # ✨ 가장 신뢰도 높은 기사 1개로 XAI 분석 (합치면 너무 길어서 기여도 왜곡)
-    best = max(scored, key=lambda s: s["combined_weight"])
-    raw_expl   = _explain(best["text"], pipe)
-    explanation = [WordContribution(**c) for c in raw_expl]
+    # Groq LLM으로 AI 종합 브리핑, 호재/악재 뉴스 구분 및 뉴스 칩 생성
+    llm_analysis = _llm_sentiment_analysis(news, sentiment)
 
-    warnings   = _check_uncertainty(news, sentiment, scored)
-    trend      = _calc_trend(scored)
-    # Attention 기반 핵심 키워드 추출
-    attention_result = _attention_keywords(best["text"], pipe)
-    attention_words = [a["word"] for a in attention_result]
-
-    # KeyBERT로 보완
-    top_scored = sorted(scored, key=lambda s: s["combined_weight"], reverse=True)[:5]
-    kb_texts = [s["text"] for s in top_scored]
-    kb_keywords = _extract_keywords_keybert(kb_texts)
-
-    xai_keywords = _extract_keywords(raw_expl)
-
-    # Attention > KeyBERT > XAI 우선순위
-    if attention_words:
-        keywords = "Attention 키워드: " + ", ".join(attention_words[:5])
-    elif kb_keywords:
-        keywords = "핵심 키워드: " + ", ".join(kb_keywords)
-    else:
-        keywords = xai_keywords
+    warnings = _check_uncertainty(news, sentiment, scored)
+    trend = _calc_trend(scored)
     volatility = _calc_volatility(scored)
-
-    # Groq LLM으로 키워드 + 트렌드 + 신뢰도 보완
-    llm_result = _llm_sentiment_analysis(news, sentiment)
-    if llm_result:
-        pos_kw = llm_result.get("positive_keywords", [])
-        neg_kw = llm_result.get("negative_keywords", [])
-        if pos_kw or neg_kw:
-            kw_parts = []
-            if pos_kw: kw_parts.append("긍정: " + ", ".join(pos_kw[:3]))
-            if neg_kw: kw_parts.append("부정: " + ", ".join(neg_kw[:2]))
-            keywords = " / ".join(kw_parts)
-        
-        # 트렌드 LLM 결과로 보완
-        if llm_result.get("trend") and trend is None:
-            llm_trend = llm_result.get("trend")
-            llm_reason = llm_result.get("trend_reason", "")
-            direction = llm_trend
-            trend = SentimentTrend(
-                direction=direction,
-                recent_score=round(sentiment.positive, 3),
-                old_score=round(sentiment.positive - 0.05 if llm_trend == "개선" else sentiment.positive + 0.05, 3),
-                change=round(0.05 if llm_trend == "개선" else -0.05 if llm_trend == "악화" else 0, 3),
-            )
-        
-        # LLM 신뢰도로 보완
-        llm_confidence = llm_result.get("confidence", None)
-        llm_summary = llm_result.get("summary", "")
-        if llm_summary:
-            print(f"📝 LLM 감성 요약: {llm_summary}")
-        
-        # 감성 경고에 LLM 신뢰도 반영
-        if llm_confidence is not None and llm_confidence < 0.5 and not warnings:
-            warnings.append(f"LLM 감성 신뢰도 낮음 ({llm_confidence:.0%})")
-
-    # 퀀트 알파 팩터 계산
     alpha = _calc_sentiment_alpha(sentiment, scored, volatility or 0)
-    print(f"📈 감성 알파 팩터: {alpha.sentiment_alpha:.3f} ({alpha.signal})")
+
+    has_llm_result = bool(
+        llm_analysis and (llm_analysis.get("positive_items") or llm_analysis.get("negative_items"))
+    )
+
+    if has_llm_result:
+        # ── LLM 브리핑 성공 ──
+        # [★추가 2] url 기준으로 원본 뉴스 객체를 찾아 source_title을 채워줌.
+        # 이게 없으면 프론트(InsightItem)에서 출처 캡션/링크 표시 UI가 아예 그려지지 않음.
+        news_by_url = {getattr(n, "url", None): n for n in news if getattr(n, "url", None)}
+
+        def _resolve_source_title(item_url: str) -> Optional[str]:
+            matched = news_by_url.get(item_url)
+            return _clean_title(matched.title) if matched else None
+
+        explanation = []
+        if llm_analysis.get("positive_items"):
+            for item in llm_analysis["positive_items"]:
+                item_url = item.get("url", "#")
+                explanation.append({
+                    "type": "positive",
+                    "title": item.get("title", ""),
+                    "source_title": _resolve_source_title(item_url),  # [★추가 2]
+                    "chips": item.get("chips", []),
+                    "url": item_url
+                })
+        if llm_analysis.get("negative_items"):
+            for item in llm_analysis["negative_items"]:
+                item_url = item.get("url", "#")
+                explanation.append({
+                    "type": "negative",
+                    "title": item.get("title", ""),
+                    "source_title": _resolve_source_title(item_url),  # [★추가 2]
+                    "chips": item.get("chips", []),
+                    "url": item_url
+                })
+        top_keywords = llm_analysis.get("ai_summary", "뉴스 데이터를 종합 분석 중입니다.")
+
+    else:
+        # ── LLM 실패 시 폴백: 기사 단위로 호재/악재 뉴스를 각각 선정 ──
+        print("⚠️ LLM 브리핑 생성 실패 — FinBERT XAI 폴백으로 전환")
+
+        # [★추가] 종목명처럼 거의 모든 기사에 공통으로 등장하는 단어는 후보에서 제외
+        corpus_stopwords = _compute_corpus_stopwords(scored)
+
+        pos_sorted = sorted(scored, key=lambda s: s["score"], reverse=True)
+        neg_sorted = sorted(scored, key=lambda s: s["score"])
+
+        positive_candidates = _dedup_by_title(
+            [s for s in pos_sorted if s["score"] > POS_THRESHOLD], MAX_ITEMS_PER_SIDE
+        )
+        negative_candidates = _dedup_by_title(
+            [s for s in neg_sorted if s["score"] < NEG_THRESHOLD], MAX_ITEMS_PER_SIDE
+        )
+
+        used_reason_texts = set()  # [★추가] 완성된 문장이 겹치지 않도록 추적
+
+        def _build_items(candidates, is_positive):
+            items = []
+            for cand in candidates:
+                # top_k=3으로 넉넉히 뽑아서, 2단어 조합이 겹치면 3단어 조합도 시도
+                raw_expl = _explain_fallback(
+                    cand["text"], pipe, top_k=3, extra_stopwords=corpus_stopwords
+                )
+                if not raw_expl:
+                    continue
+
+                chosen_chips, reason_text = None, None
+                for k in (2, 3, 1):
+                    if k > len(raw_expl):
+                        continue
+                    candidate_chips = [c["word"] for c in raw_expl[:k]]
+                    candidate_text = _build_reason_text(candidate_chips, is_positive)
+                    if candidate_text not in used_reason_texts:
+                        chosen_chips, reason_text = candidate_chips, candidate_text
+                        break
+
+                if reason_text is None:
+                    # 그래도 겹치면 이 기사는 건너뛰고 다음 후보로
+                    continue
+
+                used_reason_texts.add(reason_text)
+                items.append({
+                    "type": "positive" if is_positive else "negative",
+                    "title": reason_text,                                 # 합성 문장 (메인 텍스트)
+                    "source_title": _clean_title(cand["news"].title),     # 원본 제목 (출처 캡션/링크용)
+                    "chips": chosen_chips,
+                    "url": getattr(cand["news"], "url", "#"),
+                })
+            return items
+
+        explanation = _build_items(positive_candidates, True) + _build_items(negative_candidates, False)
+
+        if not explanation:
+            # 뚜렷한 호재/악재 기사가 없을 때 — 중립으로 최소 1개는 보여줌
+            best = max(scored, key=lambda s: s["combined_weight"])
+            explanation.append({
+                "type": "neutral",
+                "title": "뚜렷한 호재/악재 신호 없음",
+                "source_title": _clean_title(best["news"].title),
+                "chips": [],
+                "url": getattr(best["news"], "url", "#"),
+            })
+
+        top_keywords = (
+            "AI 브리핑 생성에 실패하여 기본 분석으로 대체되었습니다. "
+            f"긍정 {round(sentiment.positive*100)}% / 부정 {round(sentiment.negative*100)}%"
+        )
+        if not warnings:
+            warnings = []
+        warnings.append("LLM 브리핑 생성 실패 — 기본 분석 결과로 대체됨")
 
     return SentimentResult(
         sentiment=sentiment,
         explanation=explanation,
         sentiment_warning=" / ".join(warnings) if warnings else None,
         trend=trend,
-        top_keywords=keywords,
+        top_keywords=top_keywords,
         volatility=volatility,
         alpha=alpha,
+        calculation_note=calculation_note,  # [★추가]
     )
 
 
 def _calc_weighted_sentiment(scored: list[dict]) -> Sentiment:
-    """시간 × 신뢰도 가중 평균 감성 점수"""
     wp = sum(s["score"] * s["combined_weight"] for s in scored)
     tw = sum(s["combined_weight"] for s in scored)
     if tw == 0:
@@ -280,14 +441,13 @@ def _calc_weighted_sentiment(scored: list[dict]) -> Sentiment:
 
 
 def _calc_trend(scored: list[dict]) -> Optional[SentimentTrend]:
-    """최근 기사 vs 이전 기사 감성 트렌드 비교"""
     recent = [s for s in scored if s["time_weight"] >= 0.7]
-    old    = [s for s in scored if 0.2 <= s["time_weight"] < 0.7]
+    old = [s for s in scored if 0.2 <= s["time_weight"] < 0.7]
     if not recent or not old:
         return None
 
     r = sum(s["score"] for s in recent) / len(recent)
-    o = sum(s["score"] for s in old)    / len(old)
+    o = sum(s["score"] for s in old) / len(old)
     change = round(r - o, 3)
 
     if change > 0.05:    direction = "긍정 방향으로 개선 중"
@@ -302,104 +462,7 @@ def _calc_trend(scored: list[dict]) -> Optional[SentimentTrend]:
     )
 
 
-
-
-def _attention_keywords(text: str, pipe, top_k: int = 5) -> list[dict]:
-    """
-    BERT Attention 기반 핵심 키워드 추출
-    모델이 감성 판단할 때 실제로 집중한 단어를 보여줌
-    """
-    try:
-        import torch
-        from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
-        model_name = pipe.model.config._name_or_path
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSequenceClassification.from_pretrained(
-            model_name, output_attentions=True
-        )
-        model.eval()
-
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, max_length=256)
-        with torch.no_grad():
-            outputs = model(**inputs)
-
-        # 마지막 레이어 attention 평균 (CLS 기준)
-        attentions = outputs.attentions[-1]
-        avg_attention = attentions[0].mean(dim=0)[0].tolist()
-        tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
-
-        # 서브워드 합치기
-        merged = {}
-        current_word = ""
-        current_score = 0.0
-        for token, score in zip(tokens[1:-1], avg_attention[1:-1]):
-            if token.startswith("##"):
-                current_word += token[2:]
-                current_score = max(current_score, score)
-            else:
-                if current_word:
-                    merged[current_word] = current_score
-                current_word = token
-                current_score = score
-        if current_word:
-            merged[current_word] = current_score
-
-        # 조사/어미/불용어 제거
-        ko_stopwords = {
-            "의", "에", "을", "를", "이", "가", "은", "는", "와", "과",
-            "로", "으로", "에서", "까지", "도", "만", "에게", "한", "하",
-            "및", "등", "위해", "통해", "따라", "위한", "대한"
-        }
-
-        import re
-        cleaned = {}
-        for word, score in merged.items():
-            # 조사 제거 (끝에 붙은 조사)
-            clean = re.sub(r"(에서|으로|에게|까지|에서|이나|이고|하고|이며|지만)$", "", word)
-            clean = re.sub(r"(의|에|을|를|이|가|은|는|와|과|로|도|만)$", "", clean)
-            if len(clean) > 1 and clean not in ko_stopwords and not re.search(r"[0-9]", clean):
-                cleaned[clean] = score
-
-        pairs = sorted(cleaned.items(), key=lambda x: x[1], reverse=True)[:top_k]
-        return [{"word": w, "attention_score": round(s, 4)} for w, s in pairs]
-
-    except Exception as e:
-        print(f"⚠️ Attention 분석 실패: {e}")
-        return []
-
-def _extract_keywords_keybert(texts: list[str], top_k: int = 5) -> list[str]:
-    """KeyBERT로 전체 뉴스에서 핵심 키워드 추출"""
-    try:
-        from keybert import KeyBERT
-        kw_model = KeyBERT()
-        combined = " ".join(texts[:10])  # 상위 10개 기사
-        keywords = kw_model.extract_keywords(
-            combined,
-            keyphrase_ngram_range=(1, 2),
-            stop_words=None,
-            top_n=top_k,
-            diversity=0.5
-        )
-        return [kw for kw, score in keywords if score > 0.2]
-    except Exception as e:
-        print(f"⚠️ KeyBERT 실패: {e}")
-        return []
-
-def _extract_keywords(explanation: list[dict]) -> Optional[str]:
-    """XAI 기여도 기반 핵심 키워드 추출"""
-    if not explanation:
-        return None
-    pos = [e["word"] for e in explanation if e["contribution"] > 0.05][:2]
-    neg = [e["word"] for e in explanation if e["contribution"] < -0.05][:2]
-    parts = []
-    if pos: parts.append(f"긍정 키워드: {', '.join(pos)}")
-    if neg: parts.append(f"부정 키워드: {', '.join(neg)}")
-    return " / ".join(parts) if parts else None
-
-
 def _calc_volatility(scored: list[dict]) -> Optional[float]:
-    """기사별 감성 점수 표준편차"""
     scores = [s["score"] for s in scored]
     if len(scores) < 2:
         return None
@@ -409,48 +472,20 @@ def _calc_volatility(scored: list[dict]) -> Optional[float]:
 
 
 def _check_uncertainty(news: list, sentiment: Sentiment, scored: list[dict]) -> list[str]:
-    """4가지 불확실성 경고"""
     warnings = []
-
-    # ① 신호 강도
     if abs(sentiment.positive - sentiment.negative) < 0.15:
         warnings.append("감성 신호 불명확")
-
-    # ② 의견 혼재
-    if len(scored) >= 3:
-        pos_count = sum(1 for s in scored if s["score"] > 0.5)
-        if 0.35 <= pos_count / len(scored) <= 0.65:
-            warnings.append("긍정·부정 기사 혼재 — 시장 의견 불일치")
-
-    # ③ 데이터량
     if len(news) < 5:
         warnings.append(f"뉴스 부족 ({len(news)}건)")
-    elif len(news) < 10:
-        warnings.append(f"뉴스 적음 ({len(news)}건) — 추가 확인 권장")
-
-    # ④ 최신성
-    recent = sum(1 for s in scored if s["time_weight"] >= 0.7)
-    if len(scored) > 0 and recent / len(scored) < 0.5:
-        warnings.append("최신 뉴스 부족 — 오래된 정보 기반")
-
     return warnings
 
 
-
 def _calc_sentiment_alpha(sentiment: Sentiment, scored: list[dict], volatility: float) -> AlphaFactor:
-    """
-    퀀트 펀드 방식 감성 알파 팩터 계산
-    감성 에이전트가 생성하는 알파 신호
-    """
-    # 감성 알파 (-1 ~ +1)
     sentiment_alpha = round(sentiment.positive - sentiment.negative, 3)
-
-    # 변동성 보정 (변동성 높으면 신호 약화)
     vol_penalty = min(volatility * 2, 0.5) if volatility else 0
     adjusted_alpha = sentiment_alpha * (1 - vol_penalty)
-
-    # 신호 강도
     abs_alpha = abs(adjusted_alpha)
+
     if abs_alpha >= 0.4:
         signal = "강한매수" if adjusted_alpha > 0 else "강한매도"
     elif abs_alpha >= 0.2:
@@ -465,13 +500,49 @@ def _calc_sentiment_alpha(sentiment: Sentiment, scored: list[dict], volatility: 
     )
 
 
-def _llm_sentiment_analysis(news_list: list, sentiment: "Sentiment") -> dict:
+def _safe_json_parse(raw_text: str) -> dict:
     """
-    Groq LLM으로 감성 키워드 + 트렌드 + 신뢰도 보완
-    FinBERT 점수를 유지하면서 맥락 이해 기반 키워드 추출
+    [★추가 3] LLM이 만든 JSON의 흔한 문법 오류를 보정해서 파싱 시도.
+    1) 그대로 파싱 시도
+    2) 실패하면 trailing comma(배열/객체 닫기 직전의 불필요한 콤마) 제거 후 재시도
+    3) 그래도 실패하면 원본 텍스트에서 가장 바깥쪽 {...} 블록만 잘라내서 재시도
+    4) 모두 실패하면 빈 딕셔너리 반환 (호출부에서 폴백으로 전환됨)
+    """
+    if not raw_text:
+        return {}
+
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError:
+        pass
+
+    fixed = re.sub(r',\s*([\]}])', r'\1', raw_text)
+    try:
+        return json.loads(fixed)
+    except json.JSONDecodeError:
+        pass
+
+    match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+    if match:
+        fixed_block = re.sub(r',\s*([\]}])', r'\1', match.group())
+        try:
+            return json.loads(fixed_block)
+        except json.JSONDecodeError as e:
+            print(f"⚠️ JSON 파싱 최종 실패: {e}")
+            return {}
+
+    return {}
+
+
+def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
+    """
+    Groq LLM으로 종합 브리핑 + 호재/악재 뉴스 분리 + 키워드 칩 생성.
+
+    ⚠️ 수정: 제목뿐 아니라 description도 함께 제공해서 LLM이 근거 있는
+    요약을 만들도록 하고, "원문에 없는 정보는 만들어내지 말라"는 제약을 명시해
+    수치·사실 환각(hallucination) 위험을 줄임.
     """
     try:
-        import os
         from groq import Groq
         from dotenv import load_dotenv
         from pathlib import Path
@@ -483,64 +554,89 @@ def _llm_sentiment_analysis(news_list: list, sentiment: "Sentiment") -> dict:
 
         client = Groq(api_key=api_key)
 
-        # 상위 10개 뉴스 제목 + description
-        top_news = []
-        for n in news_list[:10]:
+        news_items_text = []
+        for idx, n in enumerate(news_list[:10]):
             title = getattr(n, "title", "")
             desc = getattr(n, "description", "") or ""
-            top_news.append(f"- {title} {desc[:50]}")
-        news_text = "\n".join(top_news)
+            url = getattr(n, "url", "#")
+            entry = f"{idx+1}. 제목: {title}"
+            if desc:
+                entry += f"\n   내용: {desc[:150]}"
+            entry += f"\n   URL: {url}"
+            news_items_text.append(entry)
 
-        prompt = f"""주식 투자 관점에서 다음 뉴스들을 분석하세요.
-현재 감성 분석: 긍정 {sentiment.positive:.1%} / 부정 {sentiment.negative:.1%}
+        news_text = "\n".join(news_items_text)
 
-뉴스 목록:
+        prompt = f"""주식 투자 분석가로서 아래 뉴스 목록을 분석하세요.
+
+[뉴스 목록]
 {news_text}
 
-반드시 아래 JSON 형식으로만 답하세요. 다른 텍스트 없이 JSON만:
+[작성 지침]
+1. `ai_summary`: 뉴스 전체 흐름을 1~2문장으로 종합 요약하세요.
+2. `positive_items`: 주가에 호재가 되는 대표 뉴스를 최대 4개까지 고르고, 각 뉴스마다 핵심 요약 키워드 태그(chips) 2개를 뽑으세요.
+3. `negative_items`: 주가에 악재가 되는 대표 뉴스를 최대 4개까지 고르고, 각 뉴스마다 핵심 요약 키워드 태그(chips) 2개를 뽑으세요.
+4. 호재/악재로 분류할 만한 뉴스가 그만큼 없으면 있는 만큼만 담고, 없으면 빈 배열([])로 두세요. 개수를 채우려고 억지로 만들지 마세요.
+5. positive_items, negative_items 각 항목의 `url`은 반드시 위 [뉴스 목록]에 실제로 주어진 URL 중 하나를 그대로 복사해서 넣으세요. 새로 만들거나 변형하지 마세요.
+
+[중요 — 반드시 지킬 것]
+- 반드시 위에 주어진 제목과 내용에 명시된 정보만 사용하세요.
+- 숫자, 퍼센트, 날짜 등 구체적 수치는 원문에 실제로 등장하는 것만 인용하세요. 원문에 없는 수치는 절대 만들어내지 마세요.
+- 뉴스 목록이 종목과 무관해 보이면(예: 스포츠, 연예 뉴스), positive_items와 negative_items를 모두 빈 배열로 두고 ai_summary에 "관련 뉴스가 부족합니다"라고 명시하세요.
+
+반드시 아래 JSON 형식으로만 응답하세요:
 {{
-  "positive_keywords": ["키워드1", "키워드2", "키워드3"],
-  "negative_keywords": ["키워드1", "키워드2"],
-  "trend": "개선" or "악화" or "보합",
-  "trend_reason": "한 문장 이유",
-  "confidence": 0.0~1.0,
-  "summary": "뉴스 전체 흐름 한 문장 요약"
+  "ai_summary": "최근 장중 상승 등 강력한 수급 모멘텀이 유지되고 있으나, 차익실현 매물 출회로 인한 단기 변동성이 공존하고 있습니다.",
+  "positive_items": [
+    {{
+      "title": "뉴스 제목...",
+      "chips": ["6.8% 상승", "수급 모멘텀"],
+      "url": "http..."
+    }}
+  ],
+  "negative_items": [
+    {{
+      "title": "뉴스 제목...",
+      "chips": ["차익실현 매물", "하락세"],
+      "url": "http..."
+    }}
+  ]
 }}"""
 
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=300,
+            max_tokens=800,
             temperature=0.1,
+            response_format={"type": "json_object"},  # [★추가 3] 유효한 JSON만 생성하도록 강제
         )
 
-        import json, re
-        text = response.choices[0].message.content
-        # JSON 추출
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
+        raw_content = response.choices[0].message.content
+        return _safe_json_parse(raw_content)  # [★추가 3] 안전 파싱으로 교체
+    except Exception as e:
+        print(f"⚠️ LLM 분석 중 오류 발생: {e}")
         return {}
 
-    except Exception as e:
-        print(f"⚠️ LLM 감성 보완 실패: {e}")
-        return {}
 
 def _get_mock_sentiment() -> SentimentResult:
     return SentimentResult(
-        sentiment=Sentiment(positive=0.65, negative=0.35),
+        sentiment=Sentiment(positive=0.80, negative=0.20),
         explanation=[
-            WordContribution(word="차세대 양산 계획", contribution=0.31),
-            WordContribution(word="반도체 업황 회복", contribution=0.26),
-            WordContribution(word="중국 경쟁사 압박", contribution=-0.21),
+            {
+                "type": "positive",
+                "title": "LG씨엔에스 주가, 7월 23일 장중 69,000원 6.8% 상승...",
+                "chips": ["6.8% 상승", "수급 모멘텀"],
+                "url": "#"
+            },
+            {
+                "type": "negative",
+                "title": "[특징주] LG씨엔에스, 차익실현 매물 출회에 장중 하락세...",
+                "chips": ["차익실현 매물", "하락세"],
+                "url": "#"
+            }
         ],
         sentiment_warning=None,
-        trend=SentimentTrend(
-            direction="긍정 방향으로 개선 중",
-            recent_score=0.71,
-            old_score=0.55,
-            change=0.16,
-        ),
-        top_keywords="긍정 키워드: 차세대 양산, 업황 회복 / 부정 키워드: 경쟁사 압박",
+        trend=None,
+        top_keywords="최근 장중 상승 등 강력한 수급 모멘텀이 유지되고 있으나, 차익실현 매물 출회로 인한 단기 변동성이 공존하고 있습니다.",
         volatility=0.12,
     )

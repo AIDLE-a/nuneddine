@@ -9,17 +9,30 @@ function ReliabilityCard({ stock, analysis, isLoading }) {
     const neg = analysis.sentiment.negative;
     const newsRatio = Math.min(analysis.news.length / 10, 1);
 
-    // prediction은 이제 1일~7일 단위 배열 — 가장 불확실한(spread 큰) 날 기준으로 계산
+    // prediction은 1일~7일 단위 배열
+    // ⚠️ 기존 코드 문제 2가지 수정:
+    //  1) 배율이 20% 기준(*500)으로 백엔드(heesun_forecast.py, RATIO_MAX=0.30)보다 과도하게 엄격했음
+    //     → 30% 기준으로 통일
+    //  2) "가장 불확실한 날(최댓값)" 하나로만 점수를 매겨서 항상 낮게 나왔음
+    //     → 각 시점의 점수를 평균 내어 더 대표성 있는 값으로 변경
     const predictionDays = analysis.prediction ?? [];
-    const worstSpreadRatio = predictionDays.length > 0
-      ? Math.max(
-          ...predictionDays.map(p => (p.upper - p.lower) / p.future_price)
-        )
-      : 0;
+    const RATIO_MAX = 0.30;
+
+    const dayScores = predictionDays
+      .filter(p => p.future_price && p.future_price > 0) // 0/음수 방어
+      .map(p => {
+        const spreadRatio = (p.upper - p.lower) / p.future_price;
+        const dayScore = Math.max(0, (1 - spreadRatio / RATIO_MAX)) * 100;
+        return dayScore;
+      });
+
+    const avgPredictScore = dayScores.length > 0
+      ? dayScores.reduce((sum, s) => sum + s, 0) / dayScores.length
+      : 50; // 예측 데이터가 없으면 중간값
 
     infoScore = Math.round(newsRatio * 100);
     sentimentScore = Math.round(Math.abs(pos - neg) * 100);
-    predictScore = Math.round(Math.max(0, 100 - worstSpreadRatio * 500));
+    predictScore = Math.round(avgPredictScore);
     reportScore = score;
   } else {
     score = 68;
