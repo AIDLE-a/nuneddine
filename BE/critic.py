@@ -297,7 +297,7 @@ def _calc_confidence(
     news_conf = getattr(getattr(data_result, "news_uncertainty", None), "confidence", 0.75)
     data_quality = (news_qty_score * 0.4 + news_conf * 0.6) * 100
 
-    # ② 신호 일치도 점수 (핵심!)
+    # ② 신호 일치도 점수
     sentiment_alpha = getattr(getattr(sentiment_result, "alpha", None), "sentiment_alpha", 0)
     flow_alpha = getattr(data_result, "flow_alpha", 0)
     financial_alpha = getattr(data_result, "financial_alpha", 0)
@@ -306,30 +306,34 @@ def _calc_confidence(
     alphas = [sentiment_alpha, flow_alpha, financial_alpha, momentum_alpha]
     pos = sum(1 for a in alphas if a > 0.05)
     neg = sum(1 for a in alphas if a < -0.05)
-    neutral = len(alphas) - pos - neg
 
-    # 모두 같은 방향이면 100점, 반반이면 30점
+    # 모두 같은 방향이면 100점, 반반이면 50점 (최소 50 보장)
     max_consensus = max(pos, neg)
     consensus_ratio = max_consensus / len(alphas)
-    signal_consensus = 30 + (consensus_ratio * 70)  # 30~100점
+    signal_consensus = 50 + (consensus_ratio * 50)  # 50~100점
 
-    # 신호 강도 (강할수록 신뢰도 높음)
-    avg_strength = sum(abs(a) for a in alphas) / len(alphas)
-    strength_score = min(avg_strength / 0.5, 1.0) * 100  # 평균 0.5면 만점
+    # 뉴스 감성 명확성 (긍정/부정 차이 — 보조 지표)
+    if sentiment_result and getattr(sentiment_result, "sentiment", None):
+        sentiment = sentiment_result.sentiment
+        clarity = abs(sentiment.positive - sentiment.negative)
+        clarity_score = 50 + (clarity * 100)  # 50~100점 (차이 0.5면 만점)
+        clarity_score = min(100, clarity_score)
+    else:
+        clarity_score = 60
 
-    signal_score = signal_consensus * 0.7 + strength_score * 0.3
+    signal_score = signal_consensus * 0.6 + clarity_score * 0.4
 
     # ③ 예측 안정성 점수
     spread_ratio = _get_worst_spread_ratio(prediction_result)
-    # 신뢰구간이 현재가의 10% 이내면 만점
-    spread_score = max(0.0, 1.0 - (spread_ratio / 0.10)) * 100
-    spread_score = max(0, min(100, spread_score))
+    # 신뢰구간이 현재가의 15% 이내면 만점 (기준 완화)
+    spread_score = max(0.0, 1.0 - (spread_ratio / 0.15)) * 100
+    spread_score = max(30, min(100, spread_score))  # 최소 30점 보장
 
     # Prophet 자체 신뢰도
-    pred_conf = 0
+    pred_conf = 60  # 기본값 60
     if prediction_result and prediction_result.prediction:
         confs = [p.confidence_score for p in prediction_result.prediction]
-        pred_conf = sum(confs) / len(confs)
+        pred_conf = max(50, sum(confs) / len(confs))  # 최소 50 보장
 
     prediction_stability = spread_score * 0.5 + pred_conf * 0.5
 
