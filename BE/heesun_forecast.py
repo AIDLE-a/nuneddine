@@ -51,10 +51,13 @@ def predict(
     # 2단계 감성 분석 결과(Sentiment)로 예측치 보정
     adjusted = [_adjust_with_sentiment(day, sentiment) for day in base]
 
-    # 코스피 시장 트렌드 보정
+    # 코스피/코스닥 시장 트렌드 보정
     if market_index:
-        adjusted = [_adjust_with_market(day, market_index) for day in adjusted]
-        print(f"📈 코스피 보정 적용: {market_index.get('kospi', {}).get('trend', '-')}")
+        adjusted = [_adjust_with_market(day, market_index, ticker) for day in adjusted]
+        if ticker.endswith(".KQ"):
+            print(f"📈 코스닥 보정 적용: {market_index.get('kosdaq', {}).get('trend', '-')}")
+        else:
+            print(f"📈 코스피 보정 적용: {market_index.get('kospi', {}).get('trend', '-')}")
 
     # 증권사 목표주가 보정
     if target_mean_price and price:
@@ -104,13 +107,21 @@ def _run_prophet(ticker: str, price: float) -> list[Prediction]:
 
 
 
-def _adjust_with_market(prediction: Prediction, market_index: dict) -> Prediction:
+def _adjust_with_market(prediction: Prediction, market_index: dict, ticker: str = "") -> Prediction:
     """
     코스피/코스닥 시장 트렌드로 예측치 보정
-    시장 전체가 오르면 개별 종목도 소폭 상방 보정
+    - 코스피 종목(.KS): 코스피 지수 반영
+    - 코스닥 종목(.KQ): 코스닥 지수 반영
     """
-    kospi = market_index.get("kospi", {})
-    change_5d = kospi.get("change_5d", 0)
+    # 종목에 맞는 지수 선택
+    if ticker.endswith(".KQ"):
+        index = market_index.get("kosdaq", {})
+        index_name = "코스닥"
+    else:
+        index = market_index.get("kospi", {})
+        index_name = "코스피"
+
+    change_5d = index.get("change_5d", 0)
 
     # 5일 시장 변화율의 30%만 반영 (과도한 보정 방지)
     market_adjustment = 1 + (change_5d * 0.3)

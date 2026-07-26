@@ -374,6 +374,108 @@ def search_stocks(q: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+
+# 코스피 주요 종목 목록
+MAJOR_TICKERS = {
+    "005930.KS": "삼성전자",
+    "000660.KS": "SK하이닉스",
+    "035420.KS": "NAVER",
+    "035720.KS": "카카오",
+    "005380.KS": "현대차",
+    "000270.KS": "기아",
+    "051910.KS": "LG화학",
+    "006400.KS": "삼성SDI",
+    "068270.KS": "셀트리온",
+    "207940.KS": "삼성바이오로직스",
+    "066570.KS": "LG전자",
+    "012330.KS": "현대모비스",
+    "017670.KS": "SK텔레콤",
+    "030200.KS": "KT",
+    "009150.KS": "삼성전기",
+    "003550.KS": "LG",
+    "086790.KS": "하나금융지주",
+    "105560.KS": "KB금융",
+    "055550.KS": "신한지주",
+    "352820.KS": "하이브",
+    "003490.KS": "대한항공",
+    "028260.KS": "삼성물산",
+    "032830.KS": "삼성생명",
+    "010130.KS": "고려아연",
+    "011200.KS": "HMM",
+}
+
+@app.get("/api/market-overview")
+def market_overview():
+    """급상승/급하락/인기 종목 API"""
+    try:
+        import yfinance as yf
+
+        results = []
+        tickers = list(MAJOR_TICKERS.keys())
+
+        # 배치로 한번에 가져오기
+        data = yf.download(tickers, period="2d", progress=False, group_by="ticker")
+
+        for ticker, name in MAJOR_TICKERS.items():
+            try:
+                if len(tickers) == 1:
+                    hist = data
+                else:
+                    hist = data[ticker] if ticker in data.columns.get_level_values(0) else None
+
+                if hist is None or hist.empty or len(hist) < 2:
+                    continue
+
+                prev_close = float(hist["Close"].iloc[-2])
+                curr_close = float(hist["Close"].iloc[-1])
+                change_pct = round((curr_close - prev_close) / prev_close * 100, 2)
+
+                results.append({
+                    "ticker": ticker,
+                    "name": name,
+                    "price": curr_close,
+                    "change_pct": change_pct,
+                })
+            except:
+                continue
+
+        # 급상승 TOP5
+        rising = sorted([r for r in results if r["change_pct"] > 0], key=lambda x: x["change_pct"], reverse=True)[:5]
+        # 급하락 TOP5
+        falling = sorted([r for r in results if r["change_pct"] < 0], key=lambda x: x["change_pct"])[:5]
+
+        # 인기 종목 (Firebase 분석 기록 기반)
+        popular = []
+        try:
+            db = firebase_firestore.client()
+            # 최근 1시간 분석 로그
+            from datetime import datetime, timedelta, timezone
+            one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+            logs = db.collection("stockAnalysisLog").where(
+                "analyzedAt", ">=", one_hour_ago
+            ).stream()
+
+            from collections import Counter
+            counter = Counter()
+            for log in logs:
+                d = log.to_dict()
+                counter[(d.get("ticker",""), d.get("name",""))] += 1
+
+            popular = [
+                {"ticker": t, "name": n, "count": c}
+                for (t, n), c in counter.most_common(5)
+            ]
+        except:
+            pass
+
+        return {
+            "rising": rising,
+            "falling": falling,
+            "popular": popular,
+        }
+    except Exception as e:
+        return {"rising": [], "falling": [], "popular": [], "error": str(e)}
+
 @app.get("/api/prices")
 def get_prices(tickers: str):
     import yfinance as yf

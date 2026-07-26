@@ -188,16 +188,82 @@ def _parse_dt(item: "NewsItem") -> datetime:
 
 
 def _get_ticker_keywords(ticker: str) -> tuple[str, str]:
-    """TICKER_KEYWORD_MAP에 없으면 yfinance로 회사명 자동 조회"""
+    """TICKER_KEYWORD_MAP에 없으면 네이버 금융에서 한국어 종목명 자동 조회"""
     if ticker in TICKER_KEYWORD_MAP:
         return TICKER_KEYWORD_MAP[ticker]
     try:
+        # 한국 종목이면 네이버 금융에서 한국어 이름 조회
+        if ticker.endswith('.KS') or ticker.endswith('.KQ'):
+            import requests
+            from bs4 import BeautifulSoup
+            code = ticker.replace('.KS', '').replace('.KQ', '')
+            url = f'https://finance.naver.com/item/main.naver?code={code}'
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            res = requests.get(url, headers=headers, timeout=3)
+            soup = BeautifulSoup(res.text, 'html.parser')
+            name_tag = soup.select_one('div.wrap_company h2 a')
+            if name_tag:
+                kr_name = name_tag.text.strip()
+                info = yf.Ticker(ticker).info
+                en_name = info.get("shortName") or info.get("longName") or ticker
+                return en_name, kr_name
+        # 해외 종목은 영어로
         info = yf.Ticker(ticker).info
         name = info.get("shortName") or info.get("longName") or ticker
         return name, name
     except Exception:
         return ticker, ticker
 
+
+
+def _get_korean_name(ticker: str) -> str:
+    """네이버 금융에서 한국어 종목명 자동 조회"""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        code = ticker.replace('.KS', '').replace('.KQ', '')
+        url = f'https://finance.naver.com/item/main.naver?code={code}'
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers, timeout=3)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        name = soup.select_one('div.wrap_company h2 a')
+        return name.text.strip() if name else ''
+    except:
+        return ''
+
+# 종목명 캐시 (중복 호출 방지)
+_korean_name_cache: dict = {}
+
+def _get_aliases(ticker: str, keyword_kr: str = '') -> list:
+    """티커에 대한 검색 aliases 자동 생성"""
+    # 1. 기존 TICKER_ALIAS_MAP 우선
+    if ticker in TICKER_ALIAS_MAP:
+        return TICKER_ALIAS_MAP[ticker]
+
+    # 2. 캐시 확인
+    if ticker in _korean_name_cache:
+        kr_name = _korean_name_cache[ticker]
+    else:
+        # 3. 네이버 금융에서 한국어 종목명 자동 조회
+        kr_name = _get_korean_name(ticker)
+        _korean_name_cache[ticker] = kr_name
+
+    aliases = []
+    if kr_name:
+        aliases.append(kr_name.lower())
+        aliases.append(kr_name.replace(' ', '').lower())
+        # 앞 글자 변형 (예: "삼성전기" → "삼성전", "삼성")
+        if len(kr_name) >= 4:
+            aliases.append(kr_name[:4].lower())
+        if len(kr_name) >= 3:
+            aliases.append(kr_name[:3].lower())
+
+    # 4. keyword_kr 폴백
+    if keyword_kr and keyword_kr.strip().lower() not in aliases:
+        fb = keyword_kr.strip().lower()
+        aliases.extend([fb, fb.replace(' ', '')])
+
+    return list(set(a for a in aliases if len(a) >= 2))
 
 def _is_relevant_news(title: str, ticker: str, keyword_kr: str = "") -> bool:
     """
@@ -217,15 +283,8 @@ def _is_relevant_news(title: str, ticker: str, keyword_kr: str = "") -> bool:
     if any(ex in title_clean for ex in EXCLUDE_KEYWORDS):
         return False
         
-    # 2. 티커별 필수 상호명 포함 여부 확인
-    aliases = TICKER_ALIAS_MAP.get(ticker, [])
-
-    # 매핑에 없는 종목은 검색에 실제로 쓴 회사명을 폴백 별칭으로 사용
-    if not aliases and keyword_kr:
-        # "LG CNS IT service" 같은 다단어 이름은 통째로, 공백 제거 버전도 함께 체크
-        fallback = keyword_kr.strip().lower()
-        aliases = [fallback, fallback.replace(" ", "")]
-
+    # 2. 티커별 aliases 자동 생성 (네이버 금융 한국어 종목명 포함)
+    aliases = _get_aliases(ticker, keyword_kr)
     if aliases:
         if not any(alias in title_clean for alias in aliases):
             return False
