@@ -8,6 +8,15 @@ yfinance + NewsAPI(영어) + Naver API(한국어)로 주가·뉴스 데이터를
   NEWS_API_KEY=<key>   NewsAPI 키 (https://newsapi.org)
   NAVER_CLIENT_ID=<id> 네이버 API Client ID
   NAVER_CLIENT_SECRET=<secret> 네이버 API Client Secret
+
+⚠️ 수정 노트 (뉴스 필터링 버그 수정):
+   TICKER_ALIAS_MAP에 없는 종목(예: 064400.KS LG씨엔에스)은 aliases=[]가 되어
+   `if aliases:` 조건이 거짓이 되면서 필수 상호명 검사가 통째로 건너뛰어졌음.
+   그 결과 EXCLUDE_KEYWORDS에만 안 걸리면 무관한 기사(예: LG트윈스 야구 뉴스)가
+   그대로 통과되는 구조적 결함이 있었음.
+   → 1) 064400.KS를 두 매핑에 정식 등록
+     2) 매핑에 없는 종목도 검색에 사용한 keyword_kr 자체를 폴백 별칭으로 써서
+        최소한의 필터링이 항상 걸리도록 구조 개선
 """
 import os
 import requests
@@ -46,6 +55,8 @@ TICKER_KEYWORD_MAP = {
     "GOOGL": ("Google Alphabet AI", "구글 AI"),
     "META": ("Meta Facebook AI", "메타 AI"),
     "MRNA": ("Moderna mRNA vaccine", "모더나 백신"),
+    # ── 추가: LG씨엔에스 (뉴스 필터링 버그의 원인이었던 종목) ──
+    "064400.KS": ("LG CNS IT service", "LG씨엔에스"),
 }
 
 # ── [추가] 노이즈 / 광고 / 스팸 / 무관 기사 차단 키워드 ──────────────────────────
@@ -55,7 +66,10 @@ EXCLUDE_KEYWORDS = [
     "포토", "인사", "동정", "부음", "결혼", "카톡방", "텔레그램", "찌라시",
     "냉장고", "전자레인지", "세탁기", "에어컨", "청소기", "식기세척기",
     "개그맨", "연예인", "배우", "가수", "아이돌", "드라마", "영화",
-    "요리", "맛집", "여행", "패션", "뷰티", "인테리어"
+    "요리", "맛집", "여행", "패션", "뷰티", "인테리어",
+    # ── 추가: 스포츠 관련 (종목명이 스포츠단/구단명과 겹칠 때 오염 방지) ──
+    "트윈스", "야구", "축구", "농구", "배구", "투수", "타자", "홈런",
+    "구단", "프로야구", "kbo", "K리그", "감독", "선수단",
 ]
 
 # ── [추가] 티커별 필수 브랜드/기업명 (제목에 최소 1개 필수 포함) ────────────────
@@ -82,6 +96,8 @@ TICKER_ALIAS_MAP = {
     "GOOGL": ["구글", "google", "알파벳", "alphabet"],
     "META": ["메타", "meta", "페이스북", "facebook"],
     "MRNA": ["모더나", "moderna"],
+    # ── 추가: LG씨엔에스 ──
+    "064400.KS": ["lg씨엔에스", "lg cns", "엘지씨엔에스"],
 }
 
 
@@ -148,7 +164,6 @@ def _fetch_price(ticker: str) -> tuple[float, list[float], list[float]]:
                 import math
                 closes_raw = [float(v) for v in hist["Close"].tolist()]
                 volumes_raw = [float(v) for v in hist["Volume"].tolist()]
-                # nan 제거
                 valid = [(c, v) for c, v in zip(closes_raw, volumes_raw) if not math.isnan(c)]
                 if not valid:
                     raise ValueError("유효한 가격 데이터 없음")
@@ -184,22 +199,33 @@ def _get_ticker_keywords(ticker: str) -> tuple[str, str]:
         return ticker, ticker
 
 
-def _is_relevant_news(title: str, ticker: str) -> bool:
+def _is_relevant_news(title: str, ticker: str, keyword_kr: str = "") -> bool:
     """
     제목을 다각도로 분석하여 광고/스팸 및 무관 기사를 필터링합니다.
     유빈 님의 yubin_filter.py 아이디어를 통합 고도화.
+
+    ⚠️ 수정: TICKER_ALIAS_MAP에 없는 종목은 기존엔 필터링이 통째로 건너뛰어졌음.
+    이제 매핑에 없으면 실제 검색에 쓴 keyword_kr을 폴백 별칭으로 사용해서
+    최소한의 관련성 검사가 항상 걸리도록 함.
     """
     if not title:
         return False
         
     title_clean = title.strip().lower()
     
-    # 1. 스팸 / 광고 / 찌라시 키워드 차단
+    # 1. 스팸 / 광고 / 찌라시 / 스포츠 오염 키워드 차단
     if any(ex in title_clean for ex in EXCLUDE_KEYWORDS):
         return False
         
     # 2. 티커별 필수 상호명 포함 여부 확인
     aliases = TICKER_ALIAS_MAP.get(ticker, [])
+
+    # 매핑에 없는 종목은 검색에 실제로 쓴 회사명을 폴백 별칭으로 사용
+    if not aliases and keyword_kr:
+        # "LG CNS IT service" 같은 다단어 이름은 통째로, 공백 제거 버전도 함께 체크
+        fallback = keyword_kr.strip().lower()
+        aliases = [fallback, fallback.replace(" ", "")]
+
     if aliases:
         if not any(alias in title_clean for alias in aliases):
             return False
@@ -259,13 +285,10 @@ def _fetch_google_news(query: str, lang: str = "ko", country: str = "KR") -> lis
                 iso_date = datetime.now().isoformat()
             import re
             raw_desc = item.findtext("description", "")
-            # HTML 태그 + 엔티티 제거
             clean_desc = re.sub(r"<[^>]+>", "", raw_desc).strip() if raw_desc else ""
             clean_desc = clean_desc.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", '"').replace("&#39;", "'").strip()
-            # 제목이랑 똑같으면 description 비우기
             if clean_desc.startswith(title.split(" - ")[0][:20]):
                 clean_desc = ""
-            # 제목에서 " - 언론사명" 제거 (Google RSS 형식)
             if " - " in title:
                 parts = title.rsplit(" - ", 1)
                 title = parts[0].strip()
@@ -282,6 +305,10 @@ def _fetch_google_news(query: str, lang: str = "ko", country: str = "KR") -> lis
 def _fetch_news(ticker: str, expanded: bool = False) -> list[NewsItem]:
     """
     4개 소스 수집 + 통합 필터링 알고리즘 적용
+
+    ⚠️ 수정: expanded=True일 때 실제로 검색 범위를 넓히도록 구현.
+    기존엔 파라미터만 받고 아무 동작도 안 해서 재수집 메커니즘이 무의미했음.
+    확장 시: 회사명 단독 검색 + 관대해진 최소 매칭(별칭 중 하나만 있으면 통과)으로 완화.
     """
     keyword_en, keyword_kr = _get_ticker_keywords(ticker)
 
@@ -297,14 +324,21 @@ def _fetch_news(ticker: str, expanded: bool = False) -> list[NewsItem]:
     naver_secret = os.getenv("NAVER_CLIENT_SECRET", "") or NAVER_CLIENT_SECRET
     if naver_id and naver_secret:
         try:
-            main_kr = keyword_kr.split()[0]  # 예: "삼성전자"
+            if ticker in TICKER_KEYWORD_MAP:
+                main_kr = keyword_kr.split()[0]
+            else:
+                main_kr = keyword_kr
+            # expanded=True면 회사명 뒤에 붙는 수식어(반도체, HBM 등)를 떼고
+            # 가장 넓은 단어 하나로 재검색해서 더 많은 후보를 확보
+            if expanded:
+                main_kr = keyword_kr.split()[0]
             res = requests.get(
                 "https://openapi.naver.com/v1/search/news.json",
                 headers={
                     "X-Naver-Client-Id": naver_id,
                     "X-Naver-Client-Secret": naver_secret,
                 },
-                params={"query": f'"{main_kr}"', "display": 100, "sort": "date"},
+                params={"query": f'"{main_kr}"' if not expanded else main_kr, "display": 100, "sort": "date"},
                 timeout=10,
             )
             if res.status_code == 200:
@@ -341,15 +375,18 @@ def _fetch_news(ticker: str, expanded: bool = False) -> list[NewsItem]:
     google_ko = _fetch_google_news(keyword_kr, lang="ko", country="KR")
     ko_news.extend(google_ko)
 
-    # 4. NewsAPI (영어 - 큰따옴표 정확 매칭)
+    # 4. NewsAPI (영어 - 큰따옴표 정확 매칭, expanded면 완화)
     if NEWS_API_KEY:
-        from_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        from_date = (datetime.now() - timedelta(days=7 if not expanded else 14)).strftime("%Y-%m-%d")
         try:
-            main_en = keyword_en.split()[0]  # 예: "Samsung" or "SK"
+            if ticker in TICKER_KEYWORD_MAP:
+                main_en = keyword_en.split()[0]
+            else:
+                main_en = keyword_en
             response = requests.get(
                 "https://newsapi.org/v2/everything",
                 params={
-                    "q": f'"{main_en}"',
+                    "q": f'"{main_en}"' if not expanded else main_en,
                     "apiKey": NEWS_API_KEY,
                     "language": "en",
                     "sortBy": "publishedAt",
@@ -372,11 +409,9 @@ def _fetch_news(ticker: str, expanded: bool = False) -> list[NewsItem]:
         except Exception as e:
             print(f"⚠️ NewsAPI 수집 실패: {e}")
 
-    # 각각 최신순 정렬
     ko_news.sort(key=_parse_dt, reverse=True)
     en_news.sort(key=_parse_dt, reverse=True)
 
-    # ── [핵심] 중복 제거 + 노이즈 정화 필터링 ────────────────────────────────
     seen: set[str] = set()
     unique: list[NewsItem] = []
 
@@ -384,12 +419,11 @@ def _fetch_news(ticker: str, expanded: bool = False) -> list[NewsItem]:
         key = item.title.strip().lower()
         if key and key not in seen:
             seen.add(key)
-            # ✨ 정밀 필터링 통과한 관련 기사만 담음
-            if _is_relevant_news(item.title, ticker):
+            if _is_relevant_news(item.title, ticker, keyword_kr):
                 unique.append(item)
 
     print(
-        f"📰 뉴스 수집 완료 — "
+        f"📰 뉴스 수집 완료{'(확장)' if expanded else ''} — "
         f"원천 수집: {len(ko_news) + len(en_news)}개 → "
         f"필터링 후 정화된 최종 뉴스: {len(unique)}개"
     )
@@ -463,7 +497,6 @@ def _fetch_financial_data(ticker: str):
         stock = yf.Ticker(ticker)
         info = stock.info
 
-        # 월별 추천 트렌드
         rec_trend = []
         try:
             recs = stock.recommendations
@@ -480,7 +513,6 @@ def _fetch_financial_data(ticker: str):
         except:
             pass
 
-        # 목표주가 중앙값
         try:
             apt = stock.analyst_price_targets
             target_median = apt.get("median") if apt else None
@@ -534,7 +566,6 @@ def _fetch_realtime(ticker: str) -> list:
         return []
 
 
-
 def _calc_news_uncertainty(news: list) -> "UncertaintyResult":
     """
     뉴스 에이전트 불확실성 정량화
@@ -554,18 +585,15 @@ def _calc_news_uncertainty(news: list) -> "UncertaintyResult":
     aleatoric_scores = {}
     details = []
 
-    # ① 뉴스 수
     count_score = max(0.0, 1 - len(news) / 50)
     epistemic_scores["count"] = count_score
     details.append(f"{'✅' if count_score < 0.2 else '⚠️'} 뉴스 수 {len(news)}건")
 
-    # ② 출처 다양성
     sources = set(n.source for n in news)
     source_score = max(0.0, 1 - len(sources) / 10)
     epistemic_scores["source"] = source_score
     details.append(f"{'✅' if source_score < 0.2 else '⚠️'} 출처 {len(sources)}개")
 
-    # ③ 최근 24시간 비율
     recent_1d = 0
     recent_3d = 0
     for n in news:
@@ -580,20 +608,17 @@ def _calc_news_uncertainty(news: list) -> "UncertaintyResult":
     epistemic_scores["time"] = max(0.0, 1 - recent_ratio)
     details.append(f"{'✅' if recent_ratio > 0.5 else '⚠️'} 24h 뉴스 {recent_ratio*100:.0f}% / 3일 {recent_3d/len(news)*100:.0f}%")
 
-    # ④ 주요 언론사 비율
     major = {"한국경제","매경","조선비즈","연합뉴스","서울경제","이데일리","머니투데이","헤럴드경제","bloomberg","reuters","cnbc","wsj"}
     major_count = sum(1 for n in news if any(m in n.source.lower() for m in major))
     major_ratio = major_count / len(news)
     epistemic_scores["major"] = max(0.0, 1 - major_ratio)
     details.append(f"{'✅' if major_ratio > 0.3 else '⚠️'} 주요언론 {major_ratio*100:.0f}% ({major_count}건)")
 
-    # ⑤ description 보유율
     has_desc = sum(1 for n in news if n.description and len(n.description) > 20)
     desc_ratio = has_desc / len(news)
     aleatoric_scores["desc"] = max(0.0, 1 - desc_ratio)
     details.append(f"{'✅' if desc_ratio > 0.7 else '⚠️'} description {desc_ratio*100:.0f}%")
 
-    # ⑥ 오래된 뉴스 비율
     old_count = 0
     for n in news:
         try:
@@ -606,18 +631,15 @@ def _calc_news_uncertainty(news: list) -> "UncertaintyResult":
     aleatoric_scores["old"] = old_ratio
     details.append(f"{'✅' if old_ratio < 0.2 else '⚠️'} 7일이상 {old_ratio*100:.0f}%")
 
-    # ⑦ 중복 기사 비율
     prefixes = [n.title[:10] for n in news]
     dup_ratio = 1 - len(set(prefixes)) / len(prefixes)
     aleatoric_scores["dup"] = dup_ratio
     details.append(f"{'✅' if dup_ratio < 0.2 else '⚠️'} 중복 {dup_ratio*100:.0f}%")
 
-    # ⑧ 짧은 제목 비율
     short_ratio = sum(1 for n in news if len(n.title) < 15) / len(news)
     aleatoric_scores["short"] = short_ratio
     details.append(f"{'✅' if short_ratio < 0.1 else '⚠️'} 짧은제목 {short_ratio*100:.0f}%")
 
-    # 가중 평균
     epistemic = round(min(1.0, max(0.0,
         epistemic_scores["count"]  * 0.35 +
         epistemic_scores["source"] * 0.25 +
@@ -634,7 +656,6 @@ def _calc_news_uncertainty(news: list) -> "UncertaintyResult":
 
     confidence = round(max(0.0, min(1.0, 1 - (epistemic * 0.6 + aleatoric * 0.4))), 3)
 
-    # 리포트 형식으로 출력
     status = "우수" if confidence >= 0.85 else "양호" if confidence >= 0.70 else "보통" if confidence >= 0.50 else "낮음"
     ep_status = "낮음 ✅" if epistemic < 0.2 else "보통 ⚠️" if epistemic < 0.5 else "높음 ❌"
     al_status = "낮음 ✅" if aleatoric < 0.2 else "보통 ⚠️" if aleatoric < 0.5 else "높음 ❌"
@@ -664,9 +685,6 @@ def _calc_news_uncertainty(news: list) -> "UncertaintyResult":
         confidence=confidence,
         reasoning=reasoning,
     )
-
-
-
 
 
 def _fetch_market_index() -> dict:
@@ -709,17 +727,11 @@ def _calc_momentum_alpha(price_history: list[float]) -> float:
     price_5d = price_history[-5]
     price_20d = price_history[-20]
 
-    # 단기 모멘텀 (5일)
     momentum_5d = (current - price_5d) / price_5d if price_5d > 0 else 0
-
-    # 장기 모멘텀 (20일)
     momentum_20d = (current - price_20d) / price_20d if price_20d > 0 else 0
 
-    # 단기 모멘텀 가중치 더 높음
     alpha = momentum_5d * 0.6 + momentum_20d * 0.4
-
-    # -1 ~ +1 클리핑
-    alpha = max(-1.0, min(1.0, alpha * 5))  # 5배 스케일링
+    alpha = max(-1.0, min(1.0, alpha * 5))
     return round(alpha, 3)
 
 def _calc_financial_alpha(financial) -> float:
@@ -733,27 +745,22 @@ def _calc_financial_alpha(financial) -> float:
     score = 0.0
     count = 0
 
-    # ROE (수익성) — 10% 이상이면 긍정
     if financial.roe is not None:
         score += 1.0 if financial.roe > 0.1 else -0.5 if financial.roe < 0 else 0.0
         count += 1
 
-    # 매출 성장률
     if financial.revenue_growth is not None:
         score += 1.0 if financial.revenue_growth > 0.1 else 0.3 if financial.revenue_growth > 0 else -0.5
         count += 1
 
-    # 영업이익 성장률
     if financial.earnings_growth is not None:
         score += 1.0 if financial.earnings_growth > 0.1 else 0.3 if financial.earnings_growth > 0 else -0.5
         count += 1
 
-    # 부채비율 (낮을수록 좋음)
     if financial.debt_to_equity is not None:
         score += 0.5 if financial.debt_to_equity < 50 else 0.0 if financial.debt_to_equity < 100 else -0.5
         count += 1
 
-    # 영업이익률
     if financial.operating_margin is not None:
         score += 1.0 if financial.operating_margin > 0.15 else 0.3 if financial.operating_margin > 0 else -0.5
         count += 1
@@ -761,7 +768,6 @@ def _calc_financial_alpha(financial) -> float:
     if count == 0:
         return 0.0
 
-    # -1 ~ +1 정규화
     alpha = max(-1.0, min(1.0, score / count))
     return round(alpha, 3)
 
@@ -777,17 +783,14 @@ def _calc_flow_alpha(
     if not institution or not foreign:
         return 0.0
 
-    # 최근 3일 수급
     inst_3d = sum(institution[:3])
     foreign_3d = sum(foreign[:3])
 
-    # 정규화 기준값 (삼성전자 기준 약 1000만주)
     scale = 10_000_000
 
     inst_score = max(-1.0, min(1.0, inst_3d / scale))
     foreign_score = max(-1.0, min(1.0, foreign_3d / scale))
 
-    # 외국인 가중치 더 높음 (시장 영향력 큼)
     flow_alpha = inst_score * 0.4 + foreign_score * 0.6
 
     return round(flow_alpha, 3)

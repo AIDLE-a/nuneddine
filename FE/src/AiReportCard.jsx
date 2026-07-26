@@ -74,17 +74,18 @@ function AiReportCard({ stock, analysis, isLoading }) {
           <p className="text-muted">AI 리포트 생성 중...</p>
         ) : (
           <>
+            {/* 💡 감성 언급 없이 예측가 중심의 단정한 요약 문구 */}
             <p className="report-text">
               {analysis && finalDayPrediction
-                ? `${stock?.name || '해당 종목'}에 대해 ${analysis.news?.length || 0}건의 뉴스를 분석했습니다.
-                   긍정 감성 ${Math.round((analysis.sentiment?.positive || 0) * 100)}%, 부정 ${Math.round((analysis.sentiment?.negative || 0) * 100)}%로
-                   ${(analysis.sentiment?.positive || 0) > (analysis.sentiment?.negative || 0) ? '긍정적' : '부정적'} 방향성이 우세합니다.
-                   7일 후 예측가는 ${stock?.code?.includes('.KS')
-                     ? `${predictedPrice.toLocaleString()}원`
-                     : `$${predictedPrice}`}으로 예측됩니다.`
+                ? `${stock?.name || '해당 종목'}의 최신 데이터 및 수급 지표를 종합 분석한 결과, 7일 후 예상 주가는 ${
+                    stock?.code?.includes('.KS')
+                      ? `${predictedPrice.toLocaleString()}원`
+                      : `$${predictedPrice}`
+                  }으로 전망됩니다.`
                 : reportText}
             </p>
 
+            {/* 거래량 분석 */}
             {analysis && analysis.volume_analysis && (
               <div className="report-volume-box" style={{ backgroundColor: 'var(--card-hover-bg, #f3f4f6)', borderLeft: '4px solid #10B981', padding: '12px 16px', borderRadius: '6px', marginTop: '12px', fontSize: '13px', lineHeight: '1.5', color: 'var(--text-primary)' }}>
                 <span style={{ marginRight: '6px' }}>📊</span>
@@ -92,6 +93,7 @@ function AiReportCard({ stock, analysis, isLoading }) {
               </div>
             )}
 
+            {/* ⚠️ 경고 및 모순 알림 */}
             {warningText && (
               <div className="report-alert-box" style={{ marginTop: '12px' }}>
                 <span>{warningText}</span>
@@ -100,6 +102,7 @@ function AiReportCard({ stock, analysis, isLoading }) {
               </div>
             )}
 
+            {/* 하단 모달/버튼 영역 */}
             <div className="report-buttons" style={{ marginTop: '16px' }}>
               <AnalystTargetModal analysis={analysis} stock={stock} />
               <DetailReportModal stock={stock} analysis={analysis} />
@@ -114,6 +117,7 @@ function AiReportCard({ stock, analysis, isLoading }) {
         )}
       </div>
 
+      {/* 재무제표 모달 */}
       {showFinancial && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => setShowFinancial(false)}>
