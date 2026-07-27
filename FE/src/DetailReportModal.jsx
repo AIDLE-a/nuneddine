@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 function DetailReportModal({ stock, analysis }) {
   const [show, setShow] = useState(false);
 
-  if (!analysis?.critic_report) return null;
+  // critic_report 없어도 버튼 표시
 
   const now = new Date();
   const dateStr = now.toLocaleDateString('ko-KR', {
@@ -11,7 +11,7 @@ function DetailReportModal({ stock, analysis }) {
     hour: '2-digit', minute: '2-digit'
   });
 
-  const report = analysis.critic_report;
+  const report = analysis?.critic_report || 'AI Critic 리포트를 생성 중이거나 데이터가 부족합니다.';
   const confidence = analysis.confidence_score;
   const finalPred = analysis.prediction?.length
     ? analysis.prediction[analysis.prediction.length - 1]

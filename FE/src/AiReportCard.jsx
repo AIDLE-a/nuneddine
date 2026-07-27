@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import NewsAgentModal from './NewsAgentModal';
+import DatePredictModal from './DatePredictModal';
 import DetailReportModal from './DetailReportModal';
 import { savePrediction } from './predictionStorage';
 import AnalystTargetModal from './AnalystTargetModal';
@@ -111,6 +112,7 @@ function AiReportCard({ stock, analysis, isLoading }) {
                   재무제표 ↗
                 </button>
               )}
+              <DatePredictModal stock={stock} analysis={analysis} />
               <NewsAgentModal analysis={analysis} />
             </div>
           </>

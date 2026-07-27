@@ -513,6 +513,69 @@ def get_actual_price(ticker: str, date: str):
     except Exception as e:
         return {"ticker": ticker, "date": date, "actual_price": None, "error": str(e)}
 
+
+@app.get("/api/predict-date")
+def predict_date(ticker: str, target_date: str):
+    """특정 날짜 주가 예측 + LLM 리포트 API"""
+    try:
+        from heesun_forecast import predict_until_date
+        from groq import Groq
+        from dotenv import load_dotenv
+        from pathlib import Path
+        import os
+
+        result = predict_until_date(ticker, target_date)
+        if "error" in result:
+            return result
+
+        # LLM 리포트 생성
+        load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+        client = Groq(api_key=os.getenv("GROQ_API_KEY", ""))
+
+        prompt = f"""당신은 한국 증권사 수석 애널리스트입니다. 반드시 한국어로만 작성하세요.
+
+종목: {ticker}
+현재가: {result["current_price"]:,.0f}원
+예측 날짜: {result["target_date"]} ({result["days_ahead"]}일 후)
+AI 예측가: {result["predicted_price"]:,.0f}원
+신뢰구간: {result["lower"]:,.0f} ~ {result["upper"]:,.0f}원
+예상 변동률: {result["change_pct"]:+.2f}%
+
+위 데이터를 기반으로 전문 투자 참고 리포트를 아래 형식으로 작성하세요.
+각 섹션은 2~3문장으로 간결하게 작성하세요.
+
+📊 예측 개요
+(예측 날짜, 예측가, 현재가 대비 변동률 설명)
+
+📈 상방 시나리오
+(상방 {result["upper"]:,.0f}원 도달 조건과 근거)
+
+📉 하방 시나리오  
+(하방 {result["lower"]:,.0f}원 도달 조건과 근거)
+
+⚠️ 불확실성 및 AI 한계
+({result["days_ahead"]}일 후 예측의 한계, 주의사항)
+
+※ AI 자동 생성 투자 참고용 자료. 투자 권유 아님."""
+
+        try:
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "한국 증권사 수석 애널리스트로서 간결하고 전문적인 한국어 리포트를 작성합니다. 모호한 표현 금지."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=800,
+                temperature=0.2,
+            )
+            result["llm_report"] = response.choices[0].message.content
+        except Exception as e:
+            result["llm_report"] = None
+
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/prices")
 def get_prices(tickers: str):
     import yfinance as yf

@@ -407,6 +407,45 @@ def run_forecast_pipeline(ticker: str, forecast_days: int = 7) -> dict:
 # 5. 셀프 테스트 실행
 # ==========================================
 
+
+def predict_until_date(ticker: str, target_date: str) -> dict:
+    """
+    특정 날짜까지 예측
+    target_date: YYYY-MM-DD 형식
+    """
+    try:
+        from datetime import datetime
+        target = datetime.strptime(target_date, "%Y-%m-%d")
+        today = datetime.now()
+        days_diff = (target - today).days
+
+        if days_diff < 1:
+            return {"error": "과거 날짜는 예측할 수 없어요. 오늘 이후 날짜를 선택해주세요."}
+        if days_diff > 365:
+            return {"error": "1년 이내의 날짜만 예측 가능해요."}
+
+        # Prophet 예측 실행
+        df = fetch_price_data(ticker, period_days=365)
+        current_price = float(df["y"].iloc[-1])
+        forecast = run_prophet_forecast(df, forecast_days=days_diff)
+
+        # 해당 날짜 예측값 추출
+        future_df = forecast.tail(days_diff).reset_index(drop=True)
+        target_row = future_df.iloc[-1]
+
+        return {
+            "ticker": ticker,
+            "target_date": target_date,
+            "days_ahead": days_diff,
+            "current_price": current_price,
+            "predicted_price": round(float(target_row["yhat"]), 1),
+            "lower": round(float(target_row["yhat_lower"]), 1),
+            "upper": round(float(target_row["yhat_upper"]), 1),
+            "change_pct": round((float(target_row["yhat"]) - current_price) / current_price * 100, 2),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 if __name__ == "__main__":
     test_ticker = "005930.KS"  # 삼성전자
     test_sentiment = Sentiment(positive=0.7, negative=0.3)
