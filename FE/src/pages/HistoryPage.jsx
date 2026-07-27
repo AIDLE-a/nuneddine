@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { savePrediction, loadPredictions, loadAllPredictions, deletePredictionRecord } from '../predictionStorage';
+import PredictionVerifier from '../PredictionVerifier';
 import { useNavigate } from 'react-router-dom';
 import { MOCK_STOCKS } from '../App.jsx';
 
@@ -211,6 +212,32 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
                 </button>
               </div>
 
+              {/* 누적 적중률 통계 */}
+              {tickerRecords.length > 0 && (() => {
+                const verified = tickerRecords.filter(r => r.actualPrice != null);
+                const inRange = verified.filter(r => r.actualPrice >= r.lower && r.actualPrice <= r.upper).length;
+                const dirMatch = verified.filter(r => {
+                  const dir = r.actualPrice >= r.currentPrice ? '상승' : '하락';
+                  const pred = r.predictedPrice >= r.currentPrice ? '상승' : '하락';
+                  return dir === pred;
+                }).length;
+                if (verified.length === 0) return null;
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
+                    {[
+                      { label: '검증 완료', value: `${verified.length}회`, color: '#6b7280' },
+                      { label: '구간 적중률', value: `${Math.round(inRange/verified.length*100)}%`, color: '#10B981' },
+                      { label: '방향 적중률', value: `${Math.round(dirMatch/verified.length*100)}%`, color: '#3B82F6' },
+                    ].map((stat, i) => (
+                      <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '12px 14px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
+                        <p style={{ margin: 0, fontSize: 11, color: '#6b7280' }}>{stat.label}</p>
+                        <p style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 800, color: stat.color }}>{stat.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
               {tickerRecords.length === 0 ? (
                 <p style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>기록이 없어요</p>
               ) : (
@@ -265,6 +292,9 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
                           )}
                         </div>
                       </div>
+
+                      {/* 예측 검증 */}
+                      <PredictionVerifier ticker={selectedTicker} record={record} />
 
                       {/* 알파 팩터 (있으면 표시) */}
                       {record.compositeAlpha != null && (

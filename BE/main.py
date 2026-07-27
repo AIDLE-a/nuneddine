@@ -439,10 +439,10 @@ def market_overview():
             except:
                 continue
 
-        # 급상승 TOP5
-        rising = sorted([r for r in results if r["change_pct"] > 0], key=lambda x: x["change_pct"], reverse=True)[:5]
-        # 급하락 TOP5
-        falling = sorted([r for r in results if r["change_pct"] < 0], key=lambda x: x["change_pct"])[:5]
+        # 급상승 TOP10
+        rising = sorted([r for r in results if r["change_pct"] > 0], key=lambda x: x["change_pct"], reverse=True)[:10]
+        # 급하락 TOP10
+        falling = sorted([r for r in results if r["change_pct"] < 0], key=lambda x: x["change_pct"])[:10]
 
         # 인기 종목 (Firebase 분석 기록 기반)
         popular = []
@@ -475,6 +475,43 @@ def market_overview():
         }
     except Exception as e:
         return {"rising": [], "falling": [], "popular": [], "error": str(e)}
+
+
+@app.get("/api/actual-price")
+def get_actual_price(ticker: str, date: str):
+    """
+    특정 날짜의 실제 종가 조회
+    date: YYYY-MM-DD 형식
+    """
+    try:
+        import yfinance as yf
+        from datetime import datetime, timedelta
+
+        target = datetime.strptime(date, "%Y-%m-%d")
+        # 다음 거래일까지 포함해서 조회
+        end = target + timedelta(days=5)
+
+        hist = yf.Ticker(ticker).history(
+            start=target.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d")
+        )
+
+        if hist.empty:
+            return {"ticker": ticker, "date": date, "actual_price": None}
+
+        # 해당 날짜 또는 다음 거래일 종가
+        row = hist.iloc[0]
+        actual_date = hist.index[0].strftime("%Y-%m-%d")
+        actual_price = round(float(row["Close"]), 2)
+
+        return {
+            "ticker": ticker,
+            "requested_date": date,
+            "actual_date": actual_date,
+            "actual_price": actual_price,
+        }
+    except Exception as e:
+        return {"ticker": ticker, "date": date, "actual_price": None, "error": str(e)}
 
 @app.get("/api/prices")
 def get_prices(tickers: str):

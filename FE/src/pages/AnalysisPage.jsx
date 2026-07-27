@@ -251,10 +251,11 @@ function AnalysisPage({
         <ReliabilityCard stock={selectedStock} analysis={analysis} isLoading={isLoading} />
       </div>
 
+      <MarketOverviewPanel onAnalyze={onAnalyze} />
+
       <div className="sub-content-grid">
         <SentimentCard stock={selectedStock} analysis={analysis} isLoading={isLoading} />
         <RecentNewsCard stock={selectedStock} analysis={analysis} />
-        <MarketOverviewPanel onAnalyze={onAnalyze} />
       </div>
 
       <AiReportCard stock={selectedStock} analysis={analysis} isLoading={isLoading} />

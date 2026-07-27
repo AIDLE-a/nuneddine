@@ -615,6 +615,19 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
         return _safe_json_parse(raw_content)  # [★추가 3] 안전 파싱으로 교체
     except Exception as e:
         print(f"⚠️ LLM 분석 중 오류 발생: {e}")
+        # Groq json_validate_failed 시 failed_generation에서 JSON 복구
+        try:
+            import re
+            err_str = str(e)
+            # failed_generation 값 추출
+            match = re.search(r"'failed_generation':\s*'((?:[^'\\]|\\.)*)'", err_str)
+            if match:
+                raw_json = match.group(1).encode('raw_unicode_escape').decode('unicode_escape')
+                recovered = json.loads(raw_json)
+                print("✅ failed_generation에서 JSON 복구 성공")
+                return recovered
+        except Exception as e2:
+            print(f"⚠️ JSON 복구도 실패: {e2}")
         return {}
 
 

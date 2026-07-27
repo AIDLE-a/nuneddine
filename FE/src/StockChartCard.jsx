@@ -25,8 +25,9 @@ function StockChartCard({ stock, analysis }) {
   const opGrowth = (rawOpGrowth != null && !isNaN(rawOpGrowth)) ? Math.round(rawOpGrowth * 1000) / 10 : null;
   const opMargin = (rawOpMargin != null && !isNaN(rawOpMargin)) ? Math.round(rawOpMargin * 1000) / 10 : null;
 
-  const historyPrices = allPrices.slice(-7);
-  const historyVolumes = allVolumes.slice(-7);
+  // 오늘 현재가를 별도 포인트로 추가하므로 history는 마지막 제외한 7개
+  const historyPrices = allPrices.length > 7 ? allPrices.slice(-8, -1) : allPrices.slice(0, -1);
+  const historyVolumes = allVolumes.length > 7 ? allVolumes.slice(-8, -1) : allVolumes.slice(0, -1);
 
   const formatPrice = (v) => isKorean ? `${(v / 1000).toFixed(0)}k` : `$${v}`;
 
