@@ -14,6 +14,11 @@
 - [★추가] 거래량 시각화 및 리포트를 위한 Volume 필드 추가 (유빈/희선/채민 영향)
   - StockDataResult & StockAnalysisResponse: volume_history 추가
   - PredictionResult & StockAnalysisResponse: volume_analysis 추가
+- [★추가 2] NewsInsight에 source_title 추가 (원본 뉴스 제목 — 출처 캡션/링크용)
+- [★추가 3] SentimentResult/StockAnalysisResponse에 calculation_note 추가
+  (긍정/부정 비율 계산 방식 설명 — 상세보기용)
+- ⚠️ 정리: NewsInsight/SentimentResult가 파일 내에 실수로 두 번씩 정의되어 있던 것을
+  하나로 통합함 (동작엔 영향 없었지만 혼동 방지)
 """
 from pydantic import BaseModel
 from typing import List, Optional
@@ -206,6 +211,7 @@ class StockAnalysisResponse(BaseModel):
     sentiment: Sentiment
     warnings: List[str]
     confidence_score: int
+    confidence_breakdown: Optional[dict] = None  # [★필수 추가] 정보/신호/예측/시장 서브스코어 breakdown
     explanation: List[NewsInsight] = []
     trend: Optional[SentimentTrend] = None
     top_keywords: Optional[str] = None
