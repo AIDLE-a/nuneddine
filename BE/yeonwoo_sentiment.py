@@ -27,6 +27,36 @@
       JSON 모드를 강제해서 모델이 유효한 JSON만 생성하도록 하고,
       혹시 그래도 깨질 경우를 대비해 trailing comma 등 흔한 오류를
       자동 보정하는 _safe_json_parse()를 추가
+   9) [★추가 4] "AI 총평이 매번 같은 문구(=폴백 템플릿)만 뜨는" 문제 진단/보강:
+      a) GROQ_API_KEY가 없을 때 기존엔 아무 로그도 안 남기고 조용히 폴백으로
+         빠졌음 → 이제 print로 명확히 남겨서 "왜 매번 실패하는지" 콘솔에서
+         바로 확인 가능하게 함
+      b) Groq가 2026-08-16에 llama-3.1-8b-instant를 종료 예정이라고 공지함
+         (대체 모델: openai/gpt-oss-20b, https://console.groq.com/docs/deprecations)
+         → 1차 모델 호출이 실패하면 대체 모델로 자동 재시도하도록 구성해서,
+         종료일이 지나도 이 파일을 다시 안 고쳐도 되게 함
+      c) 각 모델 시도마다 실패 사유(예외 타입 + 메시지)를 그대로 로그에 남겨서
+         다음에 실패하면 콘솔에서 바로 원인을 볼 수 있게 함
+   10) [★추가 5] 실제 로그로 원인 2가지 확인 후 조치:
+      a) llama-3.1-8b-instant가 분당 토큰 한도(TPM 6000)를 계속 초과 (429) →
+         프롬프트에 넣는 뉴스 개수/설명 길이와 max_tokens를 줄여 요청당
+         토큰 사용량을 낮춤. (Critic 에이전트 등 같은 Groq 계정을 쓰는 다른
+         호출과 쿼터를 나눠 쓰기 때문에 완전히 없앨 순 없고, 빈도만 낮춤)
+      b) 대체 모델 openai/gpt-oss-20b가 response_format=json_object 강제 모드와
+         궁합이 안 좋아 매번 400(json_validate_failed, failed_generation 빈 값)로
+         실패 — reasoning 계열 모델이 JSON 앞뒤로 reasoning 텍스트를 섞어
+         내보내면서 Groq의 엄격 검증에 걸리는 것으로 보임. 이 모델에는
+         response_format을 강제하지 않고, 대신 이미 있는 _safe_json_parse()의
+         정규식 추출로 파싱하도록 모델별로 분기
+   11) [★추가 6] "AI 총평이 종목과 무관하게 매번 똑같은 문장"으로 뜨는 버그의
+       진짜 원인 확인: LLM 호출 자체는 성공하고 있었는데, 프롬프트의 JSON
+       예시에 넣어둔 "최근 장중 상승 등 강력한 수급 모멘텀이..." 문장이 너무
+       그럴듯한 실제 문장이라, temperature=0.1(사실상 결정론적)인 작은 모델이
+       "형식 예시"가 아니라 "정답"으로 착각해 그대로 복사해서 반환하는 현상
+       발견 → ① 예시를 <...> 꺾쇠 형태의 명백한 placeholder로 교체하고
+       "예시를 그대로 복사하지 말 것"을 명시 ② 그래도 예시 문장을 그대로
+       반환하면 파싱 직후 감지해서 무효 처리하고 다음 모델로 재시도하도록
+       _is_prompt_example_copy() 방어 로직 추가
 """
 
 import os
@@ -64,9 +94,26 @@ _JOSA_PATTERN_1 = r"(에서|으로|에게|까지|이나|이고|하고|이며|지
 _JOSA_PATTERN_2 = r"(의|에|을|를|이|가|은|는|와|과|로|도|만|인)$"
 
 # ── 폴백 호재/악재 선정 기준 ──
-POS_THRESHOLD = 0.55        # 기사 점수가 이보다 높으면 "호재" 후보
-NEG_THRESHOLD = 0.45        # 기사 점수가 이보다 낮으면 "악재" 후보
 MAX_ITEMS_PER_SIDE = 5      # 호재/악재 각각 최대 몇 개까지 후보로 뽑을지 (프론트 "더보기" 탭용)
+MIN_CORPUS_DOCS_FOR_STOPWORDS = 5  # 이 개수 미만이면 corpus stopword 필터를 건너뜀 (과필터링 방지)
+CORPUS_STOPWORD_MIN_RATIO = 0.6    # 0.35 → 0.6으로 완화 (진짜 공통 단어만 제외)
+
+# [★추가 4] Groq 모델 후보 목록 — 1차가 실패(만료/에러/빈 응답)하면 순서대로 재시도.
+# llama-3.1-8b-instant는 2026-08-16 종료 예정 공지 → openai/gpt-oss-20b가 공식 대체 모델.
+# [★추가 5] 모델별로 response_format(json_object 강제) 사용 여부를 다르게 둠.
+# gpt-oss-20b는 강제 JSON 모드에서 계속 400(json_validate_failed)이 나서 꺼둠 —
+# 대신 _safe_json_parse()의 정규식 추출에 맡김.
+GROQ_MODEL_CANDIDATES = [
+    {"model": "llama-3.1-8b-instant", "force_json_mode": True},
+    {"model": "openai/gpt-oss-20b", "force_json_mode": False},
+]
+
+# [★추가 6] 프롬프트 예시에 있던 문장 — 모델이 이 문장을 "그대로" 반환하면
+# 형식 예시를 복사한 것으로 간주하고 무효 처리한다.
+_PROMPT_EXAMPLE_SUMMARY = (
+    "최근 장중 상승 등 강력한 수급 모멘텀이 유지되고 있으나, "
+    "차익실현 매물 출회로 인한 단기 변동성이 공존하고 있습니다."
+)
 
 _pipe_ko = None
 _pipe_en = None
@@ -165,14 +212,10 @@ def _clean_title(title: str, max_len: int = 40) -> str:
     return cleaned
 
 
-def _compute_corpus_stopwords(scored: list[dict], min_ratio: float = 0.35) -> set:
-    """
-    [★추가] 여러 기사에 공통으로 등장하는 단어(주로 종목명/티커)를 계산해서
-    XAI 키워드 후보에서 제외하기 위한 함수.
-    종목명은 거의 모든 기사에 등장해서 leave-one-out 기여도가 항상 높게 나오지만,
-    "이 기사가 왜 호재/악재인지"를 설명하는 데는 의미가 없음.
-    → 전체 기사 중 min_ratio 이상 비율로 등장하는 단어는 후보에서 제외.
-    """
+def _compute_corpus_stopwords(scored: list[dict], min_ratio: float = CORPUS_STOPWORD_MIN_RATIO) -> set:
+    if len(scored) < MIN_CORPUS_DOCS_FOR_STOPWORDS:
+        return set()
+
     from collections import Counter
     doc_word_sets = []
     for s in scored:
@@ -181,9 +224,6 @@ def _compute_corpus_stopwords(scored: list[dict], min_ratio: float = 0.35) -> se
         doc_word_sets.append(words)
 
     n = len(doc_word_sets)
-    if n == 0:
-        return set()
-
     counter = Counter()
     for words in doc_word_sets:
         for w in words:
@@ -192,15 +232,20 @@ def _compute_corpus_stopwords(scored: list[dict], min_ratio: float = 0.35) -> se
     return {w for w, c in counter.items() if c / n >= min_ratio}
 
 
-def _build_calculation_note(scored: list[dict], news_confidence: float) -> str:
-    """[★추가] 긍정/부정 비율이 어떻게 계산되는지 설명하는 문구 (상세보기에서 노출)"""
+def _build_calculation_note(scored: list[dict], news_confidence: float, total_news_count: int) -> str:
     n = len(scored)
     if n == 0:
         return "분석에 사용된 뉴스가 없습니다."
     avg_source_weight = round(sum(s["source_weight"] for s in scored) / n, 2)
     avg_time_weight = round(sum(s["time_weight"] for s in scored) / n, 2)
+
+    count_note = (
+        f"총 {total_news_count}건의 뉴스 중 최신순 상위 {n}건을 분석했습니다."
+        if total_news_count > n
+        else f"총 {n}건의 뉴스를 분석했습니다."
+    )
     return (
-        f"총 {n}건의 뉴스를 분석했습니다. 각 뉴스는 ① 발행 시점이 최근일수록 높은 가중치"
+        f"{count_note} 각 뉴스는 ① 발행 시점이 최근일수록 높은 가중치"
         f"(1일 이내 1.0배 → 7일 이후 0.2배), ② 언론사 신뢰도(이번 분석 평균 {avg_source_weight}배), "
         f"③ 뉴스 수집 신뢰도({round(news_confidence, 2)}배)를 곱해 가중치를 매긴 뒤, "
         f"긍정/부정 점수를 가중 평균하여 비율을 산출합니다. "
@@ -298,7 +343,7 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
         })
 
     sentiment = _calc_weighted_sentiment(scored)
-    calculation_note = _build_calculation_note(scored, news_confidence)  # [★추가]
+    calculation_note = _build_calculation_note(scored, news_confidence, total_news_count=len(news))  # [★추가]
 
     # Groq LLM으로 AI 종합 브리핑, 호재/악재 뉴스 구분 및 뉴스 칩 생성
     llm_analysis = _llm_sentiment_analysis(news, sentiment)
@@ -349,25 +394,26 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
         # ── LLM 실패 시 폴백: 기사 단위로 호재/악재 뉴스를 각각 선정 ──
         print("⚠️ LLM 브리핑 생성 실패 — FinBERT XAI 폴백으로 전환")
 
-        # [★추가] 종목명처럼 거의 모든 기사에 공통으로 등장하는 단어는 후보에서 제외
         corpus_stopwords = _compute_corpus_stopwords(scored)
 
+        # 절대 임계값 대신, 0.5를 기준으로 상/하위 점수를 그냥 뽑는 방식.
+        # 기사 점수가 다 애매하게 몰려있어도 "상대적으로 더 긍정/부정적인" 기사를
+        # 항상 골라낼 수 있음.
         pos_sorted = sorted(scored, key=lambda s: s["score"], reverse=True)
         neg_sorted = sorted(scored, key=lambda s: s["score"])
 
         positive_candidates = _dedup_by_title(
-            [s for s in pos_sorted if s["score"] > POS_THRESHOLD], MAX_ITEMS_PER_SIDE
+            [s for s in pos_sorted if s["score"] > 0.5], MAX_ITEMS_PER_SIDE
         )
         negative_candidates = _dedup_by_title(
-            [s for s in neg_sorted if s["score"] < NEG_THRESHOLD], MAX_ITEMS_PER_SIDE
+            [s for s in neg_sorted if s["score"] < 0.5], MAX_ITEMS_PER_SIDE
         )
 
-        used_reason_texts = set()  # [★추가] 완성된 문장이 겹치지 않도록 추적
+        used_reason_texts = set()
 
         def _build_items(candidates, is_positive):
             items = []
             for cand in candidates:
-                # top_k=3으로 넉넉히 뽑아서, 2단어 조합이 겹치면 3단어 조합도 시도
                 raw_expl = _explain_fallback(
                     cand["text"], pipe, top_k=3, extra_stopwords=corpus_stopwords
                 )
@@ -385,14 +431,13 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
                         break
 
                 if reason_text is None:
-                    # 그래도 겹치면 이 기사는 건너뛰고 다음 후보로
                     continue
 
                 used_reason_texts.add(reason_text)
                 items.append({
                     "type": "positive" if is_positive else "negative",
-                    "title": reason_text,                                 # 합성 문장 (메인 텍스트)
-                    "source_title": _clean_title(cand["news"].title),     # 원본 제목 (출처 캡션/링크용)
+                    "title": reason_text,
+                    "source_title": _clean_title(cand["news"].title),
                     "chips": chosen_chips,
                     "url": getattr(cand["news"], "url", "#"),
                 })
@@ -401,7 +446,6 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
         explanation = _build_items(positive_candidates, True) + _build_items(negative_candidates, False)
 
         if not explanation:
-            # 뚜렷한 호재/악재 기사가 없을 때 — 중립으로 최소 1개는 보여줌
             best = max(scored, key=lambda s: s["combined_weight"])
             explanation.append({
                 "type": "neutral",
@@ -534,6 +578,20 @@ def _safe_json_parse(raw_text: str) -> dict:
     return {}
 
 
+def _is_prompt_example_copy(parsed: dict) -> bool:
+    """
+    [★추가 6] LLM이 프롬프트 안의 JSON "형식 예시"를 실제 값으로 착각해서
+    그대로 복사해 반환했는지 감지.
+    현재는 ai_summary 문장이 예시와 완전히 동일한지로 판별.
+    (필요하면 나중에 positive_items/negative_items의 예시 title/chips도
+    같은 방식으로 검사에 추가할 수 있음)
+    """
+    if not parsed:
+        return False
+    summary = (parsed.get("ai_summary") or "").strip()
+    return summary == _PROMPT_EXAMPLE_SUMMARY
+
+
 def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
     """
     Groq LLM으로 종합 브리핑 + 호재/악재 뉴스 분리 + 키워드 칩 생성.
@@ -541,6 +599,12 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
     ⚠️ 수정: 제목뿐 아니라 description도 함께 제공해서 LLM이 근거 있는
     요약을 만들도록 하고, "원문에 없는 정보는 만들어내지 말라"는 제약을 명시해
     수치·사실 환각(hallucination) 위험을 줄임.
+
+    [★추가 4] GROQ_API_KEY 누락 시 로그를 남기고, 1차 모델이 실패하면
+    GROQ_MODEL_CANDIDATES의 다음 모델로 자동 재시도.
+
+    [★추가 6] 응답이 프롬프트 예시 문장을 그대로 복사한 것이면 무효 처리하고
+    다음 모델 후보로 넘어감 (모든 후보가 예시만 복사하면 최종적으로 폴백).
     """
     try:
         from groq import Groq
@@ -550,23 +614,28 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
 
         api_key = os.getenv("GROQ_API_KEY", "")
         if not api_key:
+            print("⚠️ GROQ_API_KEY가 .env에 없습니다 — LLM 브리핑을 건너뛰고 폴백으로 전환합니다.")
             return {}
 
         client = Groq(api_key=api_key)
 
+        # TPM 429를 자주 맞아서 뉴스 개수/설명 길이를 줄여 요청 토큰을 절감
         news_items_text = []
-        for idx, n in enumerate(news_list[:10]):
+        for idx, n in enumerate(news_list[:6]):
             title = getattr(n, "title", "")
             desc = getattr(n, "description", "") or ""
             url = getattr(n, "url", "#")
             entry = f"{idx+1}. 제목: {title}"
             if desc:
-                entry += f"\n   내용: {desc[:150]}"
+                entry += f"\n   내용: {desc[:100]}"
             entry += f"\n   URL: {url}"
             news_items_text.append(entry)
 
         news_text = "\n".join(news_items_text)
 
+        # [★추가 6] JSON 예시를 "이건 형식일 뿐"이라는 게 명백한 <...> placeholder로
+        # 교체. 기존엔 실제로 그럴듯한 완성 문장이라 작은 모델이 정답으로 착각하고
+        # 그대로 복사해서 반환하는 문제가 있었음.
         prompt = f"""주식 투자 분석가로서 아래 뉴스 목록을 분석하세요.
 
 [뉴스 목록]
@@ -583,37 +652,68 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
 - 반드시 위에 주어진 제목과 내용에 명시된 정보만 사용하세요.
 - 숫자, 퍼센트, 날짜 등 구체적 수치는 원문에 실제로 등장하는 것만 인용하세요. 원문에 없는 수치는 절대 만들어내지 마세요.
 - 뉴스 목록이 종목과 무관해 보이면(예: 스포츠, 연예 뉴스), positive_items와 negative_items를 모두 빈 배열로 두고 ai_summary에 "관련 뉴스가 부족합니다"라고 명시하세요.
+- 아래 JSON은 "형식"을 보여주는 예시일 뿐입니다. <...> 로 표시된 부분은 절대 그대로 복사하지 말고,
+  반드시 위 [뉴스 목록]의 실제 내용을 바탕으로 새로 작성하세요.
 
 반드시 아래 JSON 형식으로만 응답하세요:
 {{
-  "ai_summary": "최근 장중 상승 등 강력한 수급 모멘텀이 유지되고 있으나, 차익실현 매물 출회로 인한 단기 변동성이 공존하고 있습니다.",
+  "ai_summary": "<위 뉴스 내용을 바탕으로 1~2문장 요약을 새로 작성>",
   "positive_items": [
     {{
-      "title": "뉴스 제목...",
-      "chips": ["6.8% 상승", "수급 모멘텀"],
-      "url": "http..."
+      "title": "<위 뉴스 목록 중 호재가 되는 뉴스의 실제 제목>",
+      "chips": ["<핵심 키워드1>", "<핵심 키워드2>"],
+      "url": "<위 뉴스 목록에 실제로 있는 URL 그대로>"
     }}
   ],
   "negative_items": [
     {{
-      "title": "뉴스 제목...",
-      "chips": ["차익실현 매물", "하락세"],
-      "url": "http..."
+      "title": "<위 뉴스 목록 중 악재가 되는 뉴스의 실제 제목>",
+      "chips": ["<핵심 키워드1>", "<핵심 키워드2>"],
+      "url": "<위 뉴스 목록에 실제로 있는 URL 그대로>"
     }}
   ]
 }}"""
 
-        response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=800,
-            temperature=0.1,
-            response_format={"type": "json_object"},  # [★추가 3] 유효한 JSON만 생성하도록 강제
-        )
+        # 모델 후보를 순서대로 시도. llama-3.1-8b-instant가 2026-08-16 종료 예정이므로,
+        # 실패하면 openai/gpt-oss-20b로 자동 폴백.
+        last_error = None
+        for candidate in GROQ_MODEL_CANDIDATES:
+            model_id = candidate["model"]
+            try:
+                kwargs = dict(
+                    model=model_id,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=600,
+                    temperature=0.1,
+                )
+                if candidate.get("force_json_mode"):
+                    kwargs["response_format"] = {"type": "json_object"}
 
-        raw_content = response.choices[0].message.content
-        return _safe_json_parse(raw_content)  # [★추가 3] 안전 파싱으로 교체
+                response = client.chat.completions.create(**kwargs)
+                raw_content = response.choices[0].message.content
+                parsed = _safe_json_parse(raw_content)
+
+                if parsed and _is_prompt_example_copy(parsed):
+                    # [★추가 6] 예시 문장을 그대로 베낀 응답은 무효 처리하고 다음 모델로
+                    last_error = f"'{model_id}' 응답이 프롬프트 예시를 그대로 복사함 — 무효 처리"
+                    print(f"⚠️ {last_error} — 다음 후보 모델로 재시도")
+                    continue
+
+                if parsed:
+                    return parsed
+
+                last_error = f"'{model_id}' 응답을 JSON으로 파싱하지 못함 (일부: {raw_content[:200]!r})"
+                print(f"⚠️ {last_error}")
+            except Exception as model_err:
+                last_error = f"'{model_id}' 호출 실패: {type(model_err).__name__}: {model_err}"
+                print(f"⚠️ {last_error} — 다음 후보 모델로 재시도")
+                continue
+
+        print(f"⚠️ 모든 LLM 모델 시도 실패. 마지막 원인: {last_error}")
+        return {}
+
     except Exception as e:
+<<<<<<< HEAD
         print(f"⚠️ LLM 분석 중 오류 발생: {e}")
         # Groq json_validate_failed 시 failed_generation에서 JSON 복구
         try:
@@ -628,6 +728,9 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
                 return recovered
         except Exception as e2:
             print(f"⚠️ JSON 복구도 실패: {e2}")
+=======
+        print(f"⚠️ LLM 분석 준비 중 오류 발생 (패키지/설정 문제일 가능성): {type(e).__name__}: {e}")
+>>>>>>> refs/remotes/origin/Heesun5
         return {}
 
 

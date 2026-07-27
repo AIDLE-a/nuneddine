@@ -6,6 +6,16 @@
 - /api/evaluation : 추천시스템 오프라인 평가 지표 리포트 (담당: 희선)
 
 실행: uvicorn main:app --reload
+
+⚠️ 수정 노트 [★추가]:
+   프론트(ReliabilityCard.jsx)가 "종합 신뢰도" 카드의 정보/감성/예측/리포트
+   서브스코어를 자체적으로 재계산하고 있어서 critic.py 로직과 어긋나는 문제가
+   있었음 → critic.review()가 이제 confidence_breakdown(dict)도 반환하도록
+   바뀌었고, 이 파일에서도 그 값을 받아 응답(confidence_breakdown 필드)에
+   그대로 실어줌. 프론트는 이제 재계산 없이 이 값을 표시만 하면 됨.
+
+   ⚠️ 이 필드를 프론트가 받으려면 schemas.py의 StockAnalysisResponse에
+   `confidence_breakdown: dict | None = None` 필드를 추가해야 함 (별도 안내 참고).
 """
 from dotenv import load_dotenv
 from pathlib import Path
@@ -778,7 +788,9 @@ def analyze(ticker: str = "005930.KS"):
         )
         
         # 4단계: Critic 모순 검증
-        warnings, confidence_score, llm_report = critic.review(
+        # [★추가] critic.review()가 이제 4번째 값으로 confidence_breakdown(dict)도 반환.
+        # 프론트(ReliabilityCard.jsx)가 이 값을 그대로 표시하도록 응답에 실어줌.
+        warnings, confidence_score, llm_report, confidence_breakdown = critic.review(
             data_result, sentiment_result, prediction_result
         )
     except Exception as e:
@@ -829,8 +841,10 @@ def analyze(ticker: str = "005930.KS"):
         sentiment=sentiment_result.sentiment,
         warnings=warnings,
         confidence_score=confidence_score,
+        confidence_breakdown=confidence_breakdown,  # [★추가] 정보/신호일치도/예측/시장 서브스코어
         explanation=raw_explanation,   # 👈 contribution 보장된 근거 전달
         trend=sentiment_result.trend,
+        calculation_note=getattr(sentiment_result, "calculation_note", None),
         top_keywords=summary_text,     # 👈 종목별 유일 요약문 전달
         volatility=sentiment_result.volatility,
         volume_analysis=getattr(prediction_result, "volume_analysis", None),
