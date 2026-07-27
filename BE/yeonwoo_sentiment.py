@@ -713,7 +713,6 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
         return {}
 
     except Exception as e:
-<<<<<<< HEAD
         print(f"⚠️ LLM 분석 중 오류 발생: {e}")
         # Groq json_validate_failed 시 failed_generation에서 JSON 복구
         try:
@@ -728,9 +727,6 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
                 return recovered
         except Exception as e2:
             print(f"⚠️ JSON 복구도 실패: {e2}")
-=======
-        print(f"⚠️ LLM 분석 준비 중 오류 발생 (패키지/설정 문제일 가능성): {type(e).__name__}: {e}")
->>>>>>> refs/remotes/origin/Heesun5
         return {}
 
 
