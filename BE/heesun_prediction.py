@@ -1,155 +1,298 @@
-
 """
-[담당: 희선]
-Prophet 기반 7일 주가 예측(1일 단위 세분화) + 감성 점수로 보정.
-스스로 "예측 불확실성"을 판단해서 같이 반환.
-★ [추가] 과거 거래량 데이터 추출(volume_history) 및 거래량 분석(volume_analysis) 포함.
+[Critic 에이전트 — 희선]
 
-환경변수:
-  USE_MOCK_DATA=false  실제 Prophet 예측 사용
+3개 에이전트가 스스로 판단한 불확실성(info_warning, sentiment_warning,
+prediction_warning)을 모으고, Critic 자체의 추가 검증(모순 체크)을 더해서
+최종 경고 목록 + 종합 신뢰도 점수를 산출.
+
+⚠️ 수정 노트 [100점 강제 제한 및 프론트 매핑 보완]:
+   1. signal_score (감성/수급/재무/모멘텀)의 상한선을 강화하여 
+      4개 알파가 완벽하게 일치하지 않으면 절대로 90점 이상이 나올 수 없도록 수정.
+   2. breakdown 키값에 프론트엔드에서 참조하기 쉬운 키 이름들을 함께 포함하여 반환.
 """
-import os
-import time
-import yfinance as yf  # ★ 거래량 수집을 위해 추가
-from schemas import Prediction, PredictionResult, Sentiment
 
-USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
-SENTIMENT_ADJUSTMENT_WEIGHT = 0.02
-FORECAST_DAYS = 7
-
-# 종목별 Prophet 결과 캐시 (1시간 유효)
-_cache: dict = {}
-_CACHE_TTL = 3600
+from typing import List, Tuple
+from schemas import StockDataResult, SentimentResult, PredictionResult, Prediction
 
 
-def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult:
-    """메인 함수 — 오케스트레이터가 이 함수만 호출함"""
-    if USE_MOCK:
-        base = _get_mock_prediction(price)
-        # Mock 데이터용 가상 거래량 생성 (최근 7일치)
-        volume_history = [1200000, 1500000, 900000, 1100000, 1300000, 2100000, 1800000]
-        volume_analysis = _analyze_volume(volume_history)
-    else:
-        base = _run_prophet(ticker, price)
-        # ★ 실데이터 작동 시 yfinance를 통해 과거 7일간의 실제 거래량 가져오기
-        volume_history = _get_actual_volume_history(ticker)
-        volume_analysis = _analyze_volume(volume_history)
-
-    adjusted = [_adjust_with_sentiment(day, sentiment) for day in base]
-    prediction_warning = _check_prediction_uncertainty(adjusted)
-    
-    # ★ schemas.py의 PredictionResult 정의에 맞게 volume_history와 volume_analysis를 추가하여 반환
-    return PredictionResult(
-        prediction=adjusted, 
-        prediction_warning=prediction_warning,
-        volume_history=volume_history,        # ★ 추가
-        volume_analysis=volume_analysis       # ★ 추가
-    )
-
-
-def _run_prophet(ticker: str, price: float) -> list[Prediction]:
-    # 캐시 확인 (1시간 이내면 재사용)
-    cached = _cache.get(ticker)
-    if cached and time.time() - cached["ts"] < _CACHE_TTL:
-        print(f"⚡ {ticker} Prophet 캐시 사용")
-        return cached["predictions"]
-
-    from heesun_forecast import run_forecast_pipeline as run_forecast_uncertainty
-
-    result = run_forecast_uncertainty(ticker, forecast_days=FORECAST_DAYS)
-
-    predictions = [
-        Prediction(
-            day=row["day"],
-            future_price=row["predicted_price"],
-            lower=row["lower_bound"],
-            upper=row["upper_bound"],
-            confidence_score=row["confidence_score"],
-        )
-        for row in result["daily"]
-    ]
-
-    _cache[ticker] = {"predictions": predictions, "ts": time.time()}
-    return predictions
-
-
-def _adjust_with_sentiment(prediction: Prediction, sentiment: Sentiment) -> Prediction:
-    """감성 점수로 예측을 보정 (휴리스틱 보정). confidence_score는 그대로 유지."""
-    sentiment_score = sentiment.positive - sentiment.negative
-    adjustment = 1 + sentiment_score * SENTIMENT_ADJUSTMENT_WEIGHT
-    return Prediction(
-        day=prediction.day,
-        future_price=round(prediction.future_price * adjustment, 1),
-        lower=round(prediction.lower * adjustment, 1),
-        upper=round(prediction.upper * adjustment, 1),
-        confidence_score=prediction.confidence_score,
-    )
-
-
-def _check_prediction_uncertainty(predictions: list[Prediction]) -> str | None:
-    """7일 중 하나라도 구간이 현재가 대비 10% 넘게 벌어지면 경고."""
-    for p in predictions:
-        spread = p.upper - p.lower
-        if spread / p.future_price > 0.1:
-            return "변동성 높음"
-    return None
-
-
-def _get_mock_prediction(price: float) -> list[Prediction]:
-    """일 단위로 완만하게 상승 + 날이 갈수록 구간(spread) 넓어지는 mock 데이터"""
-    predictions = []
-    for day in range(1, FORECAST_DAYS + 1):
-        future_price = price * (1 + 0.015 * day / FORECAST_DAYS)
-        spread_ratio = 0.01 + 0.005 * day  # 하루씩 지날수록 구간 넓어짐
-        predictions.append(
-            Prediction(
-                day=day,
-                future_price=round(future_price, 1),
-                lower=round(future_price * (1 - spread_ratio), 1),
-                upper=round(future_price * (1 + spread_ratio), 1),
-                confidence_score=max(0, 100 - day * 8),  # mock용 임의 감소 점수
-            )
-        )
-    return predictions
-
-
-# ==========================================
-# ★ [추가 개발] 거래량 수집 및 분석 헬퍼 함수들
-# ==========================================
-
-def _get_actual_volume_history(ticker: str) -> list[int]:
-    """yfinance를 이용하여 영업일 기준 최근 7일 동안의 실제 거래량을 가져옵니다."""
+def _llm_critique(
+    data_result,
+    sentiment_result,
+    prediction_result,
+    warnings: list,
+    confidence_score: int,
+) -> str:
+    """
+    Groq LLM 기반 Critic 에이전트
+    3개 에이전트 결과를 종합해서 자연어 리포트 생성
+    """
     try:
-        stock = yf.Ticker(ticker)
-        # 과거 1개월 데이터를 넉넉히 가져온 뒤 최근 7영업일 추출
-        hist = stock.history(period="1mo")
-        if not hist.empty:
-            volumes = hist['Volume'].tail(7).tolist()
-            return [int(v) for v in volumes]
+        import os
+        from groq import Groq
+        from dotenv import load_dotenv
+        from pathlib import Path
+        load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+
+        api_key = os.getenv("GROQ_API_KEY", "")
+        if not api_key:
+            return None
+
+        client = Groq(api_key=api_key)
+
+        final_pred = prediction_result.prediction[-1] if prediction_result.prediction else None
+        sentiment = sentiment_result.sentiment
+        news_conf = getattr(getattr(data_result, "news_uncertainty", None), "confidence", None)
+
+        foreign = getattr(data_result, "foreign_history", [])
+        institution = getattr(data_result, "institution_history", [])
+        foreign_trend = "순매수" if foreign and sum(foreign[:3]) > 0 else "순매도"
+        institution_trend = "순매수" if institution and sum(institution[:3]) > 0 else "순매도"
+
+        sentiment_alpha = getattr(getattr(sentiment_result, "alpha", None), "sentiment_alpha", 0)
+        flow_alpha = getattr(data_result, "flow_alpha", 0)
+        financial_alpha = getattr(data_result, "financial_alpha", 0)
+        momentum_alpha = getattr(data_result, "momentum_alpha", 0)
+
+        market_index = getattr(data_result, "market_index", {}) or {}
+        kospi = market_index.get("kospi", {})
+        kospi_alpha = round(kospi.get("change_5d", 0) * 2, 3)
+
+        target_mean = getattr(getattr(data_result, "financial", None), "target_mean_price", None)
+        current_price = getattr(data_result, "price", 0)
+        analyst_alpha = 0
+        if target_mean and current_price:
+            upside = (target_mean - current_price) / current_price
+            analyst_alpha = round(max(-1.0, min(1.0, upside * 0.5)), 3)
+
+        composite_alpha = round(
+            sentiment_alpha  * 0.25 +
+            flow_alpha       * 0.25 +
+            financial_alpha  * 0.15 +
+            momentum_alpha   * 0.15 +
+            kospi_alpha      * 0.10 +
+            analyst_alpha    * 0.10,
+            3
+        )
+        alpha_signal = "강한매수" if composite_alpha > 0.4 else "매수" if composite_alpha > 0.2 else "강한매도" if composite_alpha < -0.4 else "매도" if composite_alpha < -0.2 else "중립"
+
+        top_news = [n.title for n in data_result.news[:5]]
+        news_headlines = "\n".join([f"  • {t[:60]}" for t in top_news])
+
+        prompt = f"""당신은 전문 주식 리서치 AI Critic 에이전트입니다.
+퀀트 펀드 방식으로 멀티 에이전트 분석 결과를 종합하여 전문적인 투자 참고 리포트를 작성하세요.
+
+━━━━━━━━━━━ 에이전트 분석 데이터 ━━━━━━━━━━━
+
+[뉴스 에이전트]
+- 수집 뉴스: {len(data_result.news)}건 / 데이터 신뢰도: {f"{news_conf:.0%}" if news_conf else "알 수 없음"}
+- 주요 헤드라인:
+{news_headlines}
+
+[감성 에이전트]
+- 긍정: {sentiment.positive:.1%} / 부정: {sentiment.negative:.1%}
+- 감성 알파: {sentiment_alpha:+.3f}
+- 주요 키워드: {getattr(sentiment_result, "top_keywords", "없음") or "없음"}
+- 경고: {sentiment_result.sentiment_warning or "없음"}
+
+[수급 에이전트]
+- 외국인: 최근 3일 {foreign_trend} / 수급 알파: {flow_alpha:+.3f}
+- 기관: 최근 3일 {institution_trend}
+
+[재무 에이전트]
+- 재무 알파: {financial_alpha:+.3f}
+- ROE: {getattr(getattr(data_result, "financial", None), "roe", None) and f"{getattr(data_result.financial, 'roe') * 100:.1f}%" or "알 수 없음"}
+- 매출 성장률: {getattr(getattr(data_result, "financial", None), "revenue_growth", None) and f"{getattr(data_result.financial, 'revenue_growth') * 100:.1f}%" or "알 수 없음"}
+
+[모멘텀 에이전트]
+- 모멘텀 알파: {momentum_alpha:+.3f}
+
+[시장 지수]
+- 코스피: {kospi.get("current", "-")} ({kospi.get("trend", "-")}) / 5일 변화: {kospi_alpha:+.3f}
+- 증권사 평균 목표주가: {f"{target_mean:,.0f}원" if target_mean else "없음"} (업사이드: {f"{analyst_alpha:+.3f}" if analyst_alpha else "-"})
+
+[종합 알파 팩터]: {composite_alpha:+.3f} → {alpha_signal}
+
+[예측 에이전트]
+- 7일 후 예측가: {f"{final_pred.future_price:,.0f}원" if final_pred else "없음"}
+- 신뢰구간: {f"{final_pred.lower:,.0f} ~ {final_pred.upper:,.0f}원" if final_pred else "없음"}
+- 예측 경고: {prediction_result.prediction_warning or "없음"}
+
+[Critic 종합 신뢰도]: {confidence_score}/100
+[경고 목록]: {", ".join(warnings) if warnings else "없음"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+작성 지침에 따라 투자 참고 리포트를 작성하세요."""
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "당신은 한국 증권사 수석 애널리스트입니다. 한국어로 전문 리포트를 작성하세요."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1500,
+            temperature=0.2,
+        )
+        return response.choices[0].message.content
+
     except Exception as e:
-        print(f"❌ 거래량 수집 실패 ({ticker}): {e}")
+        print(f"⚠️ LLM Critic 실패: {e}")
+        return None
+
+
+def review(
+    data_result: StockDataResult,
+    sentiment_result: SentimentResult,
+    prediction_result: PredictionResult,
+) -> Tuple[List[str], int, str, dict]:
+    """메인 오케스트레이터 호출 함수"""
+    warnings = _collect_warnings(data_result, sentiment_result, prediction_result)
+    confidence_score, confidence_breakdown = _calc_confidence(data_result, sentiment_result, prediction_result)
+
+    llm_report = _llm_critique(data_result, sentiment_result, prediction_result, warnings, confidence_score)
+
+    return warnings, confidence_score, llm_report, confidence_breakdown
+
+
+def _get_final_day(prediction_result: PredictionResult) -> Prediction:
+    if not prediction_result or not prediction_result.prediction:
+        return Prediction(day=7, future_price=0.0, lower=0.0, upper=0.0, confidence_score=50)
+    return prediction_result.prediction[-1]
+
+
+def _get_worst_spread_ratio(prediction_result: PredictionResult) -> float:
+    if not prediction_result or not prediction_result.prediction:
+        return 0.1
+    ratios = []
+    for p in prediction_result.prediction:
+        if p.future_price > 0:
+            ratios.append((p.upper - p.lower) / p.future_price)
+        else:
+            ratios.append(0.0)
+    return max(ratios) if ratios else 0.1
+
+
+def _collect_warnings(
+    data_result: StockDataResult,
+    sentiment_result: SentimentResult,
+    prediction_result: PredictionResult
+) -> List[str]:
+    warnings = []
+    if getattr(data_result, "info_warning", None):
+        warnings.append(data_result.info_warning)
+    if getattr(sentiment_result, "sentiment_warning", None):
+        warnings.append(sentiment_result.sentiment_warning)
+    if getattr(prediction_result, "prediction_warning", None):
+        warnings.append(prediction_result.prediction_warning)
+
+    final_day = _get_final_day(prediction_result)
+    if sentiment_result and getattr(sentiment_result, "sentiment", None) and data_result:
+        sentiment_direction = sentiment_result.sentiment.positive - sentiment_result.sentiment.negative
+        current_price = getattr(data_result, "price", 0.0) or 0.0
+        if current_price > 0 and final_day.future_price > 0:
+            price_direction = final_day.future_price - current_price
+            if sentiment_direction > 0.15 and price_direction < 0:
+                warnings.append("감성은 긍정적인데 예측은 하락 — 모순 가능성")
+            elif sentiment_direction < -0.15 and price_direction > 0:
+                warnings.append("감성은 부정적인데 예측은 상승 — 모순 가능성")
+
+    return warnings
+
+
+def _calc_confidence(
+    data_result: StockDataResult,
+    sentiment_result: SentimentResult,
+    prediction_result: PredictionResult
+) -> Tuple[int, dict]:
+    """
+    종합 신뢰도 재산출 (100점 과도 도출 완전 방지)
+    """
+    # ① 데이터 품질 점수
+    news_count = len(data_result.news) if getattr(data_result, "news", None) else 0
+    news_qty_score = min(news_count / 50.0, 1.0)
+    news_conf = getattr(getattr(data_result, "news_uncertainty", None), "confidence", 0.75)
+    data_quality = (news_qty_score * 0.4 + news_conf * 0.6) * 100
+
+    # ② 신호 일치도 점수 (감성/수급/재무/모멘텀) - [강력한 상한선 반영]
+    sentiment_alpha = getattr(getattr(sentiment_result, "alpha", None), "sentiment_alpha", 0)
+    flow_alpha = getattr(data_result, "flow_alpha", 0)
+    financial_alpha = getattr(data_result, "financial_alpha", 0)
+    momentum_alpha = getattr(data_result, "momentum_alpha", 0)
+
+    alphas = [sentiment_alpha, flow_alpha, financial_alpha, momentum_alpha]
     
-    # 실패 시 Fallback 기본 데이터
-    return [0, 0, 0, 0, 0, 0, 0]
+    # 방향 판정 (+0.03 기준)
+    pos_count = sum(1 for a in alphas if a > 0.03)
+    neg_count = sum(1 for a in alphas if a < -0.03)
+    max_align = max(pos_count, neg_count)
 
-
-def _analyze_volume(volume_history: list[int]) -> str:
-    """최근 거래량 흐름을 간단하게 분석하여 AI 리포트용 자연어 텍스트를 생성합니다."""
-    if not volume_history or len(volume_history) < 2:
-        return "최근 거래량 데이터가 충분하지 않아 흐름 분석이 제한적입니다."
-
-    yesterday_vol = volume_history[-1]
-    prev_avg_vol = sum(volume_history[:-1]) / len(volume_history[:-1]) if len(volume_history) > 1 else 1
-
-    if prev_avg_vol == 0:
-        return "거래량 데이터가 0으로 나타나 분석을 건너뜁니다."
-
-    # 직전 평균 대비 최근(어제) 거래량 증가율 계산
-    increase_rate = (yesterday_vol - prev_avg_vol) / prev_avg_vol * 100
-
-    if increase_rate >= 50:
-        return f"최근 거래량이 이전 평균 대비 {increase_rate:.1f}% 급증하며 시장의 강한 매수 세력 혹은 관심이 유입되고 있습니다. 가격 변동폭 확대를 유의하세요."
-    elif increase_rate <= -30:
-        return f"최근 거래량이 이전 평균 대비 {abs(increase_rate):.1f}% 급감하여 관망세가 짙어지고 있습니다. 단기 횡보 가능성이 높습니다."
+    # 4개 일치: 85~95점, 3개 일치: 70~80점, 2개 일치: 50~60점, 이하: 40점
+    if max_align == 4:
+        base_signal = 88.0
+    elif max_align == 3:
+        base_signal = 72.0
+    elif max_align == 2:
+        base_signal = 55.0
     else:
-        return "최근 거래량이 평소 수준을 유지하고 있어 급작스러운 수급 불균형 없이 안정적인 거래 흐름을 보이고 있습니다."
+        base_signal = 40.0
+
+    # 감성 명확도 보정 (+- 5점)
+    if sentiment_result and getattr(sentiment_result, "sentiment", None):
+        sentiment = sentiment_result.sentiment
+        clarity = abs(sentiment.positive - sentiment.negative) # 0.0 ~ 1.0
+        clarity_bonus = (clarity - 0.5) * 10  # -5 ~ +5점
+    else:
+        clarity_bonus = 0
+
+    signal_score = min(98, max(30, base_signal + clarity_bonus))
+
+    # ③ 예측 안정성 점수
+    spread_ratio = _get_worst_spread_ratio(prediction_result)
+    spread_score = max(0.0, 1.0 - (spread_ratio / 0.15)) * 100
+    spread_score = max(30, min(95, spread_score))
+
+    pred_conf = 60
+    if prediction_result and prediction_result.prediction:
+        confs = [p.confidence_score for p in prediction_result.prediction]
+        pred_conf = max(50, sum(confs) / len(confs))
+
+    prediction_stability = spread_score * 0.5 + pred_conf * 0.5
+
+    # ④ 시장 뒷받침 점수
+    market_index = getattr(data_result, "market_index", {}) or {}
+    kospi = market_index.get("kospi", {})
+    kospi_5d = kospi.get("change_5d", 0)
+    kospi_score = max(0, min(100, 50 + (kospi_5d * 500)))
+
+    foreign = getattr(data_result, "foreign_history", []) or []
+    foreign_3d = sum(foreign[:3]) if len(foreign) >= 3 else 0
+    foreign_score = 70 if foreign_3d > 0 else 30
+
+    market_support = kospi_score * 0.5 + foreign_score * 0.5
+
+    # 최종 종합 점수
+    final = (
+        data_quality        * 0.25 +
+        signal_score        * 0.35 +
+        prediction_stability * 0.25 +
+        market_support      * 0.15
+    )
+    final_score = max(10, min(99, int(round(final))))
+
+    # 프론트엔드가 어떤 변수명으로 받아도 인식할 수 있도록 호환 키 제공
+    breakdown = {
+        # 백엔드 표준 키
+        "data_quality": round(data_quality),
+        "signal_score": round(signal_score),
+        "prediction_stability": round(prediction_stability),
+        "market_support": round(market_support),
+        
+        # 프론트엔드 UI 호환용 키
+        "info": round(data_quality),
+        "multi_factor": round(signal_score),
+        "sentiment_flow": round(signal_score),
+        "prediction": round(prediction_stability),
+        "report": final_score
+    }
+
+    return final_score, breakdown

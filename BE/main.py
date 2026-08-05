@@ -18,6 +18,7 @@
    `confidence_breakdown: dict | None = None` 필드를 추가해야 함 (별도 안내 참고).
 """
 from dotenv import load_dotenv
+from datetime import datetime, timedelta
 from pathlib import Path
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
@@ -28,6 +29,7 @@ from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import requests as http_requests
+from yubin_data import get_price_on_date
 
 import firebase_admin
 from firebase_admin import credentials, auth as firebase_auth, firestore as firebase_firestore
@@ -35,6 +37,8 @@ from firebase_admin import credentials, auth as firebase_auth, firestore as fire
 from pydantic import BaseModel
 # 팀 합의 스키마 파일에서 필요한 클래스들을 로드합니다.
 from schemas import StockAnalysisResponse, SentimentResult, Sentiment
+from prediction_record import save_prediction_record, load_prediction_records, load_all_records
+
 
 # ----------------------------------------------------
 # 실제 BE 폴더 내 파일명으로 임포트 연결
@@ -768,37 +772,96 @@ def get_evaluation_report(force_refresh: bool = False):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"평가 실행 중 오류 발생: {str(e)}")
+    
+@app.get("/api/prediction-records")
+def get_all_prediction_records():
+    """기록실 페이지 — 전체 종목 예측 기록 목록"""
+    return {"results": load_all_records()}
 
+
+@app.get("/api/prediction-records/{ticker}")
+def get_prediction_records_by_ticker(ticker: str):
+    """기록실 페이지 — 특정 종목 예측 기록 상세"""
+    return load_prediction_records(ticker)
+
+
+def _save_prediction_record_for_batch(ticker, stock_name, data_result, sentiment_result, prediction_result, llm_report=None):
+    """예측 결과를 prediction_record.py 구조로 저장 — 실패해도 analyze()엔 영향 없게 별도 처리"""
+    try:
+        today = datetime.now()
+        run_date = today.strftime("%Y. %m. %d.")
+
+        composite_alpha = round(
+            getattr(data_result, "flow_alpha", 0.0) * 0.30 +
+            getattr(data_result, "financial_alpha", 0.0) * 0.20 +
+            getattr(data_result, "momentum_alpha", 0.0) * 0.20,
+            3
+        )
+
+        base_record = {
+            "date": run_date,
+            "currentPrice": getattr(data_result, "price", None),
+            "compositeAlpha": composite_alpha,
+            "sentiment": {
+                "positive": getattr(sentiment_result.sentiment, "positive", None),
+                "negative": getattr(sentiment_result.sentiment, "negative", None),
+            },
+            "newsCount": len(getattr(data_result, "news", []) or []),
+            "llmReport": llm_report,
+        }
+
+        predictions = {}
+        for p in getattr(prediction_result, "prediction", []) or []:
+            horizon_key = f"d{p.day}"
+            target_date = (today + timedelta(days=p.day)).strftime("%Y-%m-%d")
+            predictions[horizon_key] = {
+                "targetDate": target_date,
+                "predictedPrice": p.future_price,
+                "lower": p.lower,
+                "upper": p.upper,
+                "confidence": p.confidence_score,
+            }
+
+        save_prediction_record(ticker, stock_name, base_record, predictions)
+    except Exception as e:
+        print(f"⚠️ 예측 기록 저장 실패 (analyze는 정상 진행): {e}")
 
 # ── 희선 담당 (주식 리서치 오케스트레이터) ──
+# main.py 831번째 줄(def analyze)부터 파일 끝(if __name__...)까지를 아래 내용으로 통째로 교체하세요.
+
 @app.get("/api/analyze", response_model=StockAnalysisResponse)
 def analyze(ticker: str = "005930.KS"):
     try:
         # 1단계: 뉴스 수집 및 주가 기본 데이터 수집
         data_result = data_service.get_stock_data(ticker)
         stock_name = _KR_NAME_MAP.get(ticker, ticker)
-        
+
         # 2단계: 뉴스 감성 분석 및 XAI
         news_confidence = getattr(getattr(data_result, "news_uncertainty", None), "confidence", 1.0)
         sentiment_result = sentiment_service.analyze(data_result.news, news_confidence=news_confidence)
-        
+
         # 3단계: Prophet 기반 7일 주가 예측
         prediction_result = prediction_service.predict(
             ticker, data_result.price, sentiment_result.sentiment
         )
-        
+
         # 4단계: Critic 모순 검증
         # [★추가] critic.review()가 이제 4번째 값으로 confidence_breakdown(dict)도 반환.
         # 프론트(ReliabilityCard.jsx)가 이 값을 그대로 표시하도록 응답에 실어줌.
         warnings, confidence_score, llm_report, confidence_breakdown = critic.review(
             data_result, sentiment_result, prediction_result
         )
+
+        # 5단계: 예측 기록 저장 (batch_collect용)
+        _save_prediction_record_for_batch(
+            ticker, stock_name, data_result, sentiment_result, prediction_result, llm_report
+        )
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-    #yeonwoo_sentiment.py의 explanation 스키마(type/title/chips/url)에 맞춤.
+    # yeonwoo_sentiment.py의 explanation 스키마(type/title/chips/url)에 맞춤.
     pos_pct = int(sentiment_result.sentiment.positive * 100)
     neg_pct = int(sentiment_result.sentiment.negative * 100)
 
@@ -869,6 +932,15 @@ def analyze(ticker: str = "005930.KS"):
         print("🚨 잘못된 float 값(NaN/Inf) 발견:", bad_fields)
 
     return response
+
+
+@app.get("/api/actual-price")
+def get_actual_price(ticker: str, date: str):
+    """PredictionVerifier가 호출 — 특정 날짜 실제 종가 조회 (저장은 안 함)"""
+    price = data_service.get_price_on_date(ticker, date)
+    if price is None:
+        raise HTTPException(status_code=404, detail="해당 날짜 종가를 찾을 수 없습니다")
+    return {"actual_price": price, "actual_date": date}
 
 
 if __name__ == "__main__":

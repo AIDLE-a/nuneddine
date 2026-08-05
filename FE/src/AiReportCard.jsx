@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import NewsAgentModal from './NewsAgentModal';
 import DatePredictModal from './DatePredictModal';
 import DetailReportModal from './DetailReportModal';
-import { savePrediction } from './predictionStorage';
 import AnalystTargetModal from './AnalystTargetModal';
 
 function AiReportCard({ stock, analysis, isLoading }) {
@@ -28,33 +27,6 @@ function AiReportCard({ stock, analysis, isLoading }) {
   const financial = analysis?.financial;
 
   // 분석할 때마다 예측 기록 자동 저장
-  useEffect(() => {
-    if (!stock?.code || !todayPrediction || !analysis) return;
-
-    const today = new Date().toLocaleDateString('ko-KR', {
-      year: 'numeric', month: '2-digit', day: '2-digit'
-    });
-
-    const prices = analysis.price_history || [];
-    const currentPrice = analysis.price || 0;
-    const prevPrice = prices.length >= 2 ? prices[prices.length - 2] : null;
-
-    const record = {
-      date: today,
-      savedAt: new Date().toISOString(),
-      lower: todayPrediction.lower,
-      upper: todayPrediction.upper,
-      predictedPrice: todayPrediction.future_price,
-      confidence: todayPrediction.confidence_score,
-      currentPrice,
-      prevPrice,
-      compositeAlpha: analysis.composite_alpha,
-      sentiment: analysis.sentiment,
-      newsCount: analysis.news?.length || 0,
-    };
-
-    savePrediction(stock.code, stock.name, record);
-  }, [analysis]);
 
   const financialItems = financial ? [
     { label: 'PER (주가수익비율)', value: financial.per ? `${financial.per.toFixed(2)}배` : (financial.forward_per ? `${financial.forward_per.toFixed(2)}배 (예상)` : '–'), desc: '낮을수록 저평가', good: financial.per ? financial.per < 15 : null },
