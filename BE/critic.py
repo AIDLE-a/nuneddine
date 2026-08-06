@@ -13,7 +13,7 @@ prediction_warning)을 모으고, Critic 자체의 추가 검증(모순 체크)�
 
 from typing import List, Tuple
 from schemas import StockDataResult, SentimentResult, PredictionResult, Prediction
-
+from rag_store import search_similar_cases
 
 def _llm_critique(
     data_result,
@@ -78,6 +78,20 @@ def _llm_critique(
         top_news = [n.title for n in data_result.news[:5]]
         news_headlines = "\n".join([f"  • {t[:60]}" for t in top_news])
 
+# RAG: 비슷한 과거 사례 검색
+        situation_query = f"{data_result.ticker if hasattr(data_result, 'ticker') else ''} " + " ".join(top_news[:3])
+        similar_cases = search_similar_cases(situation_query, top_k=2)
+
+        print(f"🔍 RAG 검색 결과: {len(similar_cases)}건 — {[c['ticker'] for c in similar_cases]}")
+
+
+        similar_cases_text = ""
+        if similar_cases:
+            case_lines = []
+            for c in similar_cases:
+                case_lines.append(f"- [{c['date']}] {c['reasoning_snippet']}" + (f" → 결과 진단: {c['critique']}" if c['critique'] else ""))
+            similar_cases_text = "\n".join(case_lines)
+
         prompt = f"""당신은 전문 주식 리서치 AI Critic 에이전트입니다.
 퀀트 펀드 방식으로 멀티 에이전트 분석 결과를 종합하여 전문적인 투자 참고 리포트를 작성하세요.
 
@@ -116,6 +130,9 @@ def _llm_critique(
 - 7일 후 예측가: {f"{final_pred.future_price:,.0f}원" if final_pred else "없음"}
 - 신뢰구간: {f"{final_pred.lower:,.0f} ~ {final_pred.upper:,.0f}원" if final_pred else "없음"}
 - 예측 경고: {prediction_result.prediction_warning or "없음"}
+
+[참고 과거 사례] (※ 참고용일 뿐입니다. 현재 상황과 본질적으로 다르면 무시하세요)
+{similar_cases_text if similar_cases_text else "관련 과거 사례 없음"}
 
 [Critic 종합 신뢰도]: {confidence_score}/100
 [경고 목록]: {", ".join(warnings) if warnings else "없음"}
@@ -296,3 +313,76 @@ def _calc_confidence(
     }
 
     return final_score, breakdown
+
+# ↓↓↓ critic.py 파일 맨 끝에 이 함수만 추가하세요 (기존 코드는 그대로 둠) ↓↓↓
+
+def diagnose_outcome(
+    ticker_name: str,
+    predicted_price: float,
+    actual_price: float,
+    llm_report: str | None = None,
+) -> dict:
+    """
+    사후 진단 — target_date 도달 후 예측 vs 실제 비교해서 실패 유형 텍스트화
+    (review()는 예측 '전' 신뢰도 산출용, 이건 예측 '후' critique용 — 역할 분리)
+    batch_collect.py가 target_date 도달 시 호출.
+    """
+    try:
+        import os
+        from groq import Groq
+        from dotenv import load_dotenv
+        from pathlib import Path
+        load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+
+        api_key = os.getenv("GROQ_API_KEY", "")
+        if not api_key:
+            return {"critique": None, "failure_type": None}
+
+        client = Groq(api_key=api_key)
+        error = actual_price - predicted_price
+        error_pct = round(error / predicted_price * 100, 2) if predicted_price else 0
+
+        prompt = f"""당신은 주식 예측 결과를 사후 검증하는 Critic입니다.
+
+종목: {ticker_name}
+예측가: {predicted_price:,.0f}원
+실제가: {actual_price:,.0f}원
+오차: {error:+,.0f}원 ({error_pct:+.2f}%)
+
+예측 당시 근거 리포트:
+{llm_report or "없음"}
+
+위 정보를 바탕으로:
+1. 왜 예측이 실제와 이만큼 벗어났는지(또는 잘 맞았는지) 2~3문장으로 진단
+2. 실패 유형을 한 단어 카테고리로 태깅 (예: 감성과신, 이벤트미반영, 수급오판, 적중)
+
+형식:
+진단: <2~3문장>
+유형: <카테고리 한 단어>"""
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "당신은 한국 증권사 애널리스트입니다. 반드시 한국어로만, 간결하게 작성하세요. 추측성 표현 대신 단정적으로 서술하세요.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=300,
+            temperature=0.2,
+        )
+        text = response.choices[0].message.content
+
+        if "유형:" in text:
+            critique = text.split("유형:")[0].replace("진단:", "").strip()
+            failure_type = text.split("유형:")[-1].strip()
+        else:
+            critique = text.strip()
+            failure_type = None
+
+        return {"critique": critique, "failure_type": failure_type}
+
+    except Exception as e:
+        print(f"⚠️ 사후 진단 실패: {e}")
+        return {"critique": None, "failure_type": None}

@@ -451,7 +451,7 @@ def predict_until_date(ticker: str, target_date: str) -> dict:
         today = datetime.now()
         days_diff = (target - today).days
 
-        if days_diff < 1:
+        if days_diff < 0:
             return {"error": "과거 날짜는 예측할 수 없어요. 오늘 이후 날짜를 선택해주세요."}
         if days_diff > 365:
             return {"error": "1년 이내의 날짜만 예측 가능해요."}
@@ -462,7 +462,9 @@ def predict_until_date(ticker: str, target_date: str) -> dict:
         forecast = run_prophet_forecast(df, forecast_days=days_diff)
 
         # 해당 날짜 예측값 추출
-        future_df = forecast.tail(days_diff).reset_index(drop=True)
+        future_df = forecast.tail(max(days_diff, 1)).reset_index(drop=True)
+        if future_df.empty:
+            return {"error": "예측 데이터가 없습니다."}
         target_row = future_df.iloc[-1]
 
         return {

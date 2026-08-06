@@ -662,8 +662,13 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
         return {}
 
     except Exception as e:
+<<<<<<< HEAD
         print(f"⚠️ LLM 분석 중 오류 발생: {type(e).__name__}: {e}")
         # Groq json_validate_failed 시 failed_generation에서 JSON 복구 시도
+=======
+        print(f"⚠️ LLM 분석 중 오류 발생: {e}")
+        # Groq json_validate_failed 시 failed_generation에서 JSON 복구
+>>>>>>> de1cd3335128e74cad3ec41f3b2dba212862cacf
         try:
             err_str = str(e)
             match = re.search(r"'failed_generation':\s*'((?:[^'\\]|\\.)*)'", err_str)

@@ -26,6 +26,7 @@ function DetailReportModal({ stock, analysis }) {
     hour: '2-digit', minute: '2-digit'
   });
 
+<<<<<<< HEAD
   const report = safeAnalysis.critic_report || 'AI Critic 리포트를 생성 중이거나 데이터가 부족합니다.';
 
   // ✅ 옵셔널 체이닝(?.) 및 기본값 0 설정
@@ -44,6 +45,19 @@ function DetailReportModal({ stock, analysis }) {
   // 기존: const sentimentAlpha = (safeAnalysis.sentiment?.positive || 0.5) - (safeAnalysis.sentiment?.negative || 0.5);
   // 위 방식은 백엔드의 변동성 보정을 무시하고 원본값을 재계산하는 버그였음.
   const sentimentAlpha = safeAnalysis.sentiment_alpha ?? 0;
+=======
+  const report = analysis?.critic_report || 'AI Critic 리포트를 생성 중이거나 데이터가 부족합니다.';
+  const confidence = analysis?.confidence_score || 0;
+  const finalPred = analysis?.prediction?.length
+    ? analysis?.prediction[analysis?.prediction?.length - 1]
+    : null;
+
+  const flowAlpha = analysis?.flow_alpha || 0;
+  const financialAlpha = analysis?.financial_alpha || 0;
+  const momentumAlpha = analysis?.momentum_alpha || 0;
+  const compositeAlpha = analysis?.composite_alpha || 0;
+  const sentimentAlpha = (analysis?.sentiment?.positive || 0.5) - (analysis?.sentiment?.negative || 0.5);
+>>>>>>> de1cd3335128e74cad3ec41f3b2dba212862cacf
 
   const getConfColor = (score) =>
     score >= 70 ? '#10B981' : score >= 50 ? '#F59E0B' : '#EF4444';
@@ -101,8 +115,13 @@ function DetailReportModal({ stock, analysis }) {
 
 종목명: ${safeStock.name} (${safeStock.code})
 분석일시: ${dateStr}
+<<<<<<< HEAD
 현재가: ${safeAnalysis.price?.toLocaleString() || '-'}원
 7일 예측가: ${finalPred ? finalPred.future_price?.toLocaleString() + '원' : '-'}
+=======
+현재가: ${analysis?.price?.toLocaleString()}원
+7일 예측가: ${finalPred ? finalPred.future_price.toLocaleString() + '원' : '-'}
+>>>>>>> de1cd3335128e74cad3ec41f3b2dba212862cacf
 신뢰구간: ${finalPred ? `${finalPred.lower?.toLocaleString()} ~ ${finalPred.upper?.toLocaleString()}원` : '-'}
 종합 신뢰도: ${confidence}/100
 ${alphaSection}
@@ -115,10 +134,17 @@ ${report}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   데이터 요약
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+<<<<<<< HEAD
 감성: 긍정 ${Math.round((safeAnalysis.sentiment?.positive || 0) * 100)}% / 부정 ${Math.round((safeAnalysis.sentiment?.negative || 0) * 100)}%
 뉴스 신뢰도: ${Math.round((safeAnalysis.news_agent_confidence || 0) * 100)}%
 분석 뉴스: ${safeAnalysis.news?.length || 0}건
 경고: ${safeAnalysis.warnings?.join(' / ') || '없음'}
+=======
+감성: 긍정 ${Math.round(analysis?.sentiment?.positive * 100)}% / 부정 ${Math.round(analysis?.sentiment?.negative * 100)}%
+뉴스 신뢰도: ${Math.round((analysis?.news_agent_confidence || 0) * 100)}%
+분석 뉴스: ${analysis?.news?.length || 0}건
+경고: ${analysis?.warnings?.join(' / ') || '없음'}
+>>>>>>> de1cd3335128e74cad3ec41f3b2dba212862cacf
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ※ 이 리포트는 AI가 자동 생성한 투자 참고용 자료이며
@@ -170,8 +196,13 @@ ${report}
               {/* 핵심 지표 */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 20 }}>
                 {[
+<<<<<<< HEAD
                   { label: '현재가', value: safeAnalysis.price ? `${safeAnalysis.price.toLocaleString()}원` : '-', color: '#fff' },
                   { label: '7일 예측가', value: finalPred ? `${finalPred.future_price?.toLocaleString()}원` : '-', color: '#F59E0B' },
+=======
+                  { label: '현재가', value: `${analysis?.price?.toLocaleString()}원`, color: '#fff' },
+                  { label: '7일 예측가', value: finalPred ? `${finalPred.future_price.toLocaleString()}원` : '-', color: '#F59E0B' },
+>>>>>>> de1cd3335128e74cad3ec41f3b2dba212862cacf
                   { label: '종합 신뢰도', value: `${confidence}/100`, color: getConfColor(confidence) },
                   { label: '종합 알파', value: `${compositeAlpha > 0 ? '+' : ''}${compositeAlpha.toFixed(3)}`, color: getAlphaColor(compositeAlpha) },
                 ].map((item, i) => (
@@ -240,11 +271,19 @@ ${report}
               <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, marginTop: 16, border: '1px solid #e2e8f0' }}>
                 <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 700, color: '#0f172a' }}>📋 데이터 요약</p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: 12 }}>
+<<<<<<< HEAD
                   <div><span style={{ color: '#6b7280' }}>감성: </span><span style={{ fontWeight: 600 }}>긍정 {Math.round((safeAnalysis.sentiment?.positive || 0) * 100)}% / 부정 {Math.round((safeAnalysis.sentiment?.negative || 0) * 100)}%</span></div>
                   <div><span style={{ color: '#6b7280' }}>뉴스 신뢰도: </span><span style={{ fontWeight: 600 }}>{Math.round((safeAnalysis.news_agent_confidence || 0) * 100)}%</span></div>
                   <div><span style={{ color: '#6b7280' }}>분석 뉴스: </span><span style={{ fontWeight: 600 }}>{safeAnalysis.news?.length || 0}건</span></div>
                   <div><span style={{ color: '#6b7280' }}>예측 신뢰구간: </span><span style={{ fontWeight: 600 }}>{finalPred ? `${finalPred.lower?.toLocaleString()} ~ ${finalPred.upper?.toLocaleString()}원` : '-'}</span></div>
                   <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#6b7280' }}>경고: </span><span style={{ fontWeight: 600, color: safeAnalysis.warnings?.length ? '#EF4444' : '#10B981' }}>{safeAnalysis.warnings?.join(' / ') || '없음'}</span></div>
+=======
+                  <div><span style={{ color: '#6b7280' }}>감성: </span><span style={{ fontWeight: 600 }}>긍정 {Math.round((analysis?.sentiment?.positive || 0) * 100)}% / 부정 {Math.round((analysis?.sentiment?.negative || 0) * 100)}%</span></div>
+                  <div><span style={{ color: '#6b7280' }}>뉴스 신뢰도: </span><span style={{ fontWeight: 600 }}>{Math.round((analysis?.news_agent_confidence || 0) * 100)}%</span></div>
+                  <div><span style={{ color: '#6b7280' }}>분석 뉴스: </span><span style={{ fontWeight: 600 }}>{analysis?.news?.length || 0}건</span></div>
+                  <div><span style={{ color: '#6b7280' }}>예측 신뢰구간: </span><span style={{ fontWeight: 600 }}>{finalPred ? `${finalPred.lower?.toLocaleString()} ~ ${finalPred.upper?.toLocaleString()}원` : '-'}</span></div>
+                  <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#6b7280' }}>경고: </span><span style={{ fontWeight: 600, color: analysis?.warnings?.length ? '#EF4444' : '#10B981' }}>{analysis?.warnings?.join(' / ') || '없음'}</span></div>
+>>>>>>> de1cd3335128e74cad3ec41f3b2dba212862cacf
                 </div>
               </div>
 
