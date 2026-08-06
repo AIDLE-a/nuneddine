@@ -164,7 +164,8 @@ class SentimentResult(BaseModel):
     trend: Optional[SentimentTrend] = None
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
-    alpha: Optional[AlphaFactor] = None  # 퀀트 알파 팩터
+    alpha: Optional[AlphaFactor] = None
+    bayesian_uncertainty: Optional[float] = None  # MC Dropout Bayesian 불확실성  # 퀀트 알파 팩터
     calculation_note: Optional[str] = None  # 긍정/부정 비율 계산 방식 설명 (상세보기용)
 
 

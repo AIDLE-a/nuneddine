@@ -49,7 +49,9 @@ def predict(
         volume_analysis = _analyze_volume(volume_history)
 
     # 2단계 감성 분석 결과(Sentiment)로 예측치 보정
-    adjusted = [_adjust_with_sentiment(day, sentiment) for day in base]
+    sentiment_obj = sentiment.sentiment if hasattr(sentiment, "sentiment") else sentiment
+    bayesian_unc = getattr(sentiment, "bayesian_uncertainty", 0.0) or 0.0
+    adjusted = [_adjust_with_sentiment(day, sentiment_obj, bayesian_unc) for day in base]
 
     # 코스피/코스닥 시장 트렌드 보정
     if market_index:

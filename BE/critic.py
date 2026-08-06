@@ -64,6 +64,9 @@ def _llm_critique(
             upside = (target_mean - current_price) / current_price
             analyst_alpha = round(max(-1.0, min(1.0, upside * 0.5)), 3)
 
+        # Bayesian 불확실성
+        bayesian_unc = getattr(sentiment_result, "bayesian_uncertainty", 0.0) or 0.0
+
         composite_alpha = round(
             sentiment_alpha  * 0.25 +
             flow_alpha       * 0.25 +

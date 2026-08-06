@@ -489,6 +489,7 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
         volatility=volatility,
         alpha=alpha,
         calculation_note=calculation_note,  # [★추가]
+        bayesian_uncertainty=bayesian_uncertainty,
     )
 
 
