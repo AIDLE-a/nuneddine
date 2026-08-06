@@ -26,15 +26,8 @@ function DetailReportModal({ stock, analysis }) {
     hour: '2-digit', minute: '2-digit'
   });
 
-  const report = analysis?.critic_report || 'AI Critic 리포트를 생성 중이거나 데이터가 부족합니다.';
-  const confidence = analysis?.confidence_score || 0;
-  const finalPred = analysis?.prediction?.length
-    ? analysis?.prediction[analysis?.prediction?.length - 1]
-    : null;
-
   const report = safeAnalysis.critic_report || 'AI Critic 리포트를 생성 중이거나 데이터가 부족합니다.';
 
-  // ✅ 옵셔널 체이닝(?.) 및 기본값 0 설정
   const confidence = safeAnalysis.confidence_score ?? 0;
 
   const finalPred = safeAnalysis.prediction?.length
@@ -50,11 +43,7 @@ function DetailReportModal({ stock, analysis }) {
   // 기존: const sentimentAlpha = (safeAnalysis.sentiment?.positive || 0.5) - (safeAnalysis.sentiment?.negative || 0.5);
   // 위 방식은 백엔드의 변동성 보정을 무시하고 원본값을 재계산하는 버그였음.
   const sentimentAlpha = safeAnalysis.sentiment_alpha ?? 0;
-  const flowAlpha = analysis?.flow_alpha || 0;
-  const financialAlpha = analysis?.financial_alpha || 0;
-  const momentumAlpha = analysis?.momentum_alpha || 0;
-  const compositeAlpha = analysis?.composite_alpha || 0;
-  const sentimentAlpha = (analysis?.sentiment?.positive || 0.5) - (analysis?.sentiment?.negative || 0.5);
+
 
   const getConfColor = (score) =>
     score >= 70 ? '#10B981' : score >= 50 ? '#F59E0B' : '#EF4444';

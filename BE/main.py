@@ -876,7 +876,6 @@ def _save_prediction_record_for_batch(ticker, stock_name, data_result, sentiment
 # main.py 831번째 줄(def analyze)부터 파일 끝(if __name__...)까지를 아래 내용으로 통째로 교체하세요.
 
 @app.get("/api/analyze", response_model=StockAnalysisResponse)
-<<<<<<< HEAD
 def analyze(ticker: str = "005930.KS", force_refresh: bool = False):
     """
     ⚠️ [★버그 수정] 응답 레벨 캐싱 추가 (TTL 10분)
@@ -899,42 +898,6 @@ def analyze(ticker: str = "005930.KS", force_refresh: bool = False):
         cached = _analyze_cache.get(ticker)
         if cached and not force_refresh and time.time() - cached["ts"] < _ANALYZE_CACHE_TTL:
             return cached["response"]
-=======
-def analyze(ticker: str = "005930.KS"):
-    try:
-        # 1단계: 뉴스 수집 및 주가 기본 데이터 수집
-        data_result = data_service.get_stock_data(ticker)
-        stock_name = _KR_NAME_MAP.get(ticker, ticker)
-
-        # 2단계: 뉴스 감성 분석 및 XAI
-        news_confidence = getattr(getattr(data_result, "news_uncertainty", None), "confidence", 1.0)
-        sentiment_result = sentiment_service.analyze(data_result.news, news_confidence=news_confidence)
-
-        # 3단계: Prophet 기반 7일 주가 예측
-        prediction_result = prediction_service.predict(
-            ticker, data_result.price, sentiment_result.sentiment
-        )
-
-        # 4단계: Critic 모순 검증
-        # [★추가] critic.review()가 이제 4번째 값으로 confidence_breakdown(dict)도 반환.
-        # 프론트(ReliabilityCard.jsx)가 이 값을 그대로 표시하도록 응답에 실어줌.
-        warnings, confidence_score, llm_report, confidence_breakdown = critic.review(
-            data_result, sentiment_result, prediction_result
-        )
-
-        # 5단계: 예측 기록 저장 (batch_collect용)
-        _save_prediction_record_for_batch(
-            ticker, stock_name, data_result, sentiment_result, prediction_result, llm_report
-        )
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-    # yeonwoo_sentiment.py의 explanation 스키마(type/title/chips/url)에 맞춤.
-    pos_pct = int(sentiment_result.sentiment.positive * 100)
-    neg_pct = int(sentiment_result.sentiment.negative * 100)
->>>>>>> de1cd3335128e74cad3ec41f3b2dba212862cacf
 
         try:
             # 1단계: 뉴스 수집 및 주가 기본 데이터 수집
