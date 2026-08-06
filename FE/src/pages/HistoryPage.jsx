@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { savePrediction, loadPredictions, loadAllPredictions, deletePredictionRecord } from '../predictionStorage';
+import { loadPredictions, loadAllPredictions } from '../predictionStorage';
 import PredictionVerifier from '../PredictionVerifier';
 import { useNavigate } from 'react-router-dom';
 import { MOCK_STOCKS } from '../App.jsx';
 
-
-
-// ── 메인 컴포넌트 ──
 function makeStockObj(ticker, name) {
   return MOCK_STOCKS.find(s => s.code === ticker) ?? {
     name, code: ticker, price: '-', change: '-', isPositive: true,
@@ -21,22 +18,23 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
   const [predictions, setPredictions] = useState([]);
   const [selectedTicker, setSelectedTicker] = useState(null);
   const [tickerRecords, setTickerRecords] = useState([]);
+  const [selectedHorizon, setSelectedHorizon] = useState('d1');
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (activeTab === 'prediction') {
-      setPredictions(loadAllPredictions());
+      setLoading(true);
+      loadAllPredictions().then(setPredictions).finally(() => setLoading(false));
     }
   }, [activeTab]);
 
-  const handleSelectTicker = (ticker) => {
+  const handleSelectTicker = async (ticker) => {
     setSelectedTicker(ticker);
-    setTickerRecords(loadPredictions(ticker));
-  };
-
-  const handleDeleteRecord = (ticker, date) => {
-    deletePredictionRecord(ticker, date);
-    setTickerRecords(loadPredictions(ticker));
-    setPredictions(loadAllPredictions());
+    setSelectedHorizon('d1');
+    setLoading(true);
+    const records = await loadPredictions(ticker);
+    setTickerRecords(records);
+    setLoading(false);
   };
 
   const handleAnalyze = (ticker, name) => {
@@ -47,20 +45,15 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
   const isKRW = (ticker) => ticker?.includes('.KS') || ticker?.includes('.KQ');
   const fmt = (v, ticker) => v != null ? (isKRW(ticker) ? `${Math.round(v).toLocaleString()}원` : `$${v}`) : '-';
 
-  // 전체 예측 기록 한번에 내보내기
-  const handleExportAll = () => {
-    const all = loadAllPredictions();
+  const horizonOptions = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7'];
+
+  const handleExportAll = async () => {
+    const all = await loadAllPredictions();
     if (all.length === 0) return;
     const data = {
       exported_at: new Date().toISOString(),
       total_tickers: all.length,
-      total_records: all.reduce((sum, p) => sum + p.records.length, 0),
-      stocks: all.map(p => ({
-        ticker: p.ticker,
-        name: p.name,
-        record_count: p.records.length,
-        records: p.records,
-      }))
+      stocks: all.map(p => ({ ticker: p.ticker, name: p.name, record_count: p.recordCount })),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -71,9 +64,8 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
     URL.revokeObjectURL(url);
   };
 
-  // JSON 다운로드
-  const handleExport = (ticker, name) => {
-    const records = loadPredictions(ticker);
+  const handleExport = async (ticker, name) => {
+    const records = await loadPredictions(ticker);
     const data = { ticker, name, exported_at: new Date().toISOString(), records };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -91,7 +83,6 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
         <p className="page-subtitle">분석 기록과 AI 예측 기록을 확인하세요</p>
       </div>
 
-      {/* 탭 */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 24 }}>
         {[
           { key: 'analysis', label: '📊 분석 기록' },
@@ -109,7 +100,6 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
         ))}
       </div>
 
-      {/* 분석 기록 탭 */}
       {activeTab === 'analysis' && (
         history.length === 0 ? (
           <div className="empty-state">
@@ -142,10 +132,11 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
         )
       )}
 
-      {/* 예측 기록 탭 */}
       {activeTab === 'prediction' && (
         <div>
-          {predictions.length === 0 ? (
+          {loading ? (
+            <p style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>불러오는 중...</p>
+          ) : predictions.length === 0 ? (
             <div className="empty-state">
               <div className="empty-state-icon">🔮</div>
               <p className="empty-state-text">예측 기록이 없습니다</p>
@@ -153,7 +144,6 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
               <button className="btn-primary" onClick={() => navigate('/')}>종목 분석하러 가기</button>
             </div>
           ) : !selectedTicker ? (
-            // 종목 목록
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <p style={{ margin: 0, fontSize: 13, color: '#6b7280' }}>
@@ -168,14 +158,14 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
                 {predictions.map(p => (
                   <div key={p.ticker}
                     onClick={() => handleSelectTicker(p.ticker)}
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', transition: 'all 0.15s' }}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderRadius: 12, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer' }}
                     onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
                     onMouseLeave={e => e.currentTarget.style.background = '#fff'}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                       <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>🔮</div>
                       <div>
                         <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#111827' }}>{p.name}</p>
-                        <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>{p.ticker} · {p.records.length}개 기록 · 최근 {p.lastDate}</p>
+                        <p style={{ margin: '2px 0 0', fontSize: 12, color: '#6b7280' }}>{p.ticker} · {p.recordCount}개 기록 · 최근 {p.lastDate}</p>
                       </div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -190,7 +180,6 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
               </div>
             </div>
           ) : (
-            // 종목 상세 기록
             <div>
               <button onClick={() => setSelectedTicker(null)}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', marginBottom: 16, padding: 0 }}>
@@ -212,104 +201,83 @@ function HistoryPage({ history, onDeleteHistory, onAnalyze }) {
                 </button>
               </div>
 
-              {/* 누적 적중률 통계 */}
-              {tickerRecords.length > 0 && (() => {
-                const verified = tickerRecords.filter(r => r.actualPrice != null);
-                const inRange = verified.filter(r => r.actualPrice >= r.lower && r.actualPrice <= r.upper).length;
-                const dirMatch = verified.filter(r => {
-                  const dir = r.actualPrice >= r.currentPrice ? '상승' : '하락';
-                  const pred = r.predictedPrice >= r.currentPrice ? '상승' : '하락';
-                  return dir === pred;
-                }).length;
-                if (verified.length === 0) return null;
-                return (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
-                    {[
-                      { label: '검증 완료', value: `${verified.length}회`, color: '#6b7280' },
-                      { label: '구간 적중률', value: `${Math.round(inRange/verified.length*100)}%`, color: '#10B981' },
-                      { label: '방향 적중률', value: `${Math.round(dirMatch/verified.length*100)}%`, color: '#3B82F6' },
-                    ].map((stat, i) => (
-                      <div key={i} style={{ background: '#f9fafb', borderRadius: 10, padding: '12px 14px', border: '1px solid #e5e7eb', textAlign: 'center' }}>
-                        <p style={{ margin: 0, fontSize: 11, color: '#6b7280' }}>{stat.label}</p>
-                        <p style={{ margin: '4px 0 0', fontSize: 20, fontWeight: 800, color: stat.color }}>{stat.value}</p>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
+              {/* horizon 선택 탭 (d1~d7) */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+                {horizonOptions.map(h => (
+                  <button key={h} onClick={() => setSelectedHorizon(h)}
+                    style={{
+                      padding: '4px 12px', borderRadius: 16, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      border: selectedHorizon === h ? 'none' : '1px solid #e5e7eb',
+                      background: selectedHorizon === h ? '#3B82F6' : '#fff',
+                      color: selectedHorizon === h ? '#fff' : '#6b7280',
+                    }}>
+                    {h.replace('d', '')}일 후
+                  </button>
+                ))}
+              </div>
 
               {tickerRecords.length === 0 ? (
                 <p style={{ textAlign: 'center', color: '#9ca3af', padding: '40px 0' }}>기록이 없어요</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {tickerRecords.map((record, i) => (
-                    <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 14, padding: 18, background: i === 0 ? '#f0fdf4' : '#fff' }}>
+                  {tickerRecords.map((record, i) => {
+                    const pred = record.predictions?.[selectedHorizon];
+                    if (!pred) return null;
 
-                      {/* 날짜 헤더 */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>📅 {record.date}</span>
-                          {i === 0 && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#dcfce7', color: '#16a34a', fontWeight: 600 }}>최신</span>}
+                    // PredictionVerifier가 기대하는 flat 구조로 변환
+                    const verifierRecord = {
+                      date: pred.targetDate,
+                      lower: pred.lower,
+                      upper: pred.upper,
+                      predictedPrice: pred.predictedPrice,
+                      currentPrice: record.currentPrice,
+                    };
+
+                    return (
+                      <div key={i} style={{ border: '1px solid #e5e7eb', borderRadius: 14, padding: 18, background: i === 0 ? '#f0fdf4' : '#fff' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: '#111827' }}>📅 {record.date} 분석</span>
+                            {i === 0 && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#dcfce7', color: '#16a34a', fontWeight: 600 }}>최신</span>}
+                          </div>
+                          <span style={{ fontSize: 11, color: '#9ca3af' }}>신뢰도 {pred.confidence}%</span>
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 11, color: '#9ca3af' }}>신뢰도 {record.confidence}%</span>
-                          <button onClick={() => handleDeleteRecord(selectedTicker, record.date)}
-                            style={{ width: 24, height: 24, borderRadius: '50%', background: '#fee2e2', border: 'none', cursor: 'pointer', color: '#ef4444', fontSize: 12 }}>✕</button>
-                        </div>
-                      </div>
 
-                      {/* AI 예측 구간 */}
-                      <div style={{ background: '#eff6ff', borderRadius: 10, padding: '12px 16px', marginBottom: 12, border: '1px solid #bfdbfe' }}>
-                        <p style={{ margin: '0 0 6px', fontSize: 11, color: '#3B82F6', fontWeight: 600 }}>🤖 AI 당일 예측 구간</p>
-                        <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#1d4ed8' }}>
-                          {fmt(record.lower, selectedTicker)} ~ {fmt(record.upper, selectedTicker)}
-                        </p>
-                        <p style={{ margin: '4px 0 0', fontSize: 12, color: '#6b7280' }}>
-                          예측 중심값: {fmt(record.predictedPrice, selectedTicker)}
-                        </p>
-                      </div>
-
-                      {/* 실제 가격 */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        <div style={{ background: '#f9fafb', borderRadius: 10, padding: '12px 14px', border: '1px solid #e5e7eb' }}>
-                          <p style={{ margin: '0 0 4px', fontSize: 11, color: '#6b7280' }}>전일 종가</p>
-                          <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#374151' }}>
-                            {fmt(record.prevPrice, selectedTicker)}
+                        <div style={{ background: '#eff6ff', borderRadius: 10, padding: '12px 16px', marginBottom: 12, border: '1px solid #bfdbfe' }}>
+                          <p style={{ margin: '0 0 6px', fontSize: 11, color: '#3B82F6', fontWeight: 600 }}>
+                            🤖 AI 예측 구간 ({selectedHorizon.replace('d', '')}일 후 · {pred.targetDate})
+                          </p>
+                          <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#1d4ed8' }}>
+                            {fmt(pred.lower, selectedTicker)} ~ {fmt(pred.upper, selectedTicker)}
+                          </p>
+                          <p style={{ margin: '4px 0 0', fontSize: 12, color: '#6b7280' }}>
+                            예측 중심값: {fmt(pred.predictedPrice, selectedTicker)}
                           </p>
                         </div>
-                        <div style={{ background: '#f9fafb', borderRadius: 10, padding: '12px 14px', border: '1px solid #e5e7eb' }}>
+
+                        <div style={{ background: '#f9fafb', borderRadius: 10, padding: '12px 14px', border: '1px solid #e5e7eb', marginBottom: 10 }}>
                           <p style={{ margin: '0 0 4px', fontSize: 11, color: '#6b7280' }}>분석 시점 현재가</p>
                           <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#374151' }}>
                             {fmt(record.currentPrice, selectedTicker)}
                           </p>
-                          {record.prevPrice && record.currentPrice && (
-                            <p style={{ margin: '2px 0 0', fontSize: 11, fontWeight: 600,
-                              color: record.currentPrice >= record.prevPrice ? '#10B981' : '#EF4444' }}>
-                              {record.currentPrice >= record.prevPrice ? '▲' : '▼'}
-                              {fmt(Math.abs(record.currentPrice - record.prevPrice), selectedTicker)}
-                              ({((record.currentPrice - record.prevPrice) / record.prevPrice * 100).toFixed(2)}%)
-                            </p>
-                          )}
                         </div>
-                      </div>
 
-                      {/* 예측 검증 */}
-                      <PredictionVerifier ticker={selectedTicker} record={record} />
+                        {/* 팀원 검증 컴포넌트 — horizon별 pred를 flat 구조로 변환해서 전달 */}
+                        <PredictionVerifier ticker={selectedTicker} record={verifierRecord} />
 
-                      {/* 알파 팩터 (있으면 표시) */}
-                      {record.compositeAlpha != null && (
-                        <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#f9fafb', border: '1px solid #e5e7eb', display: 'flex', gap: 16 }}>
-                          <span style={{ fontSize: 11, color: '#6b7280' }}>종합 알파:
-                            <span style={{ fontWeight: 700, color: record.compositeAlpha > 0.2 ? '#10B981' : record.compositeAlpha < -0.2 ? '#EF4444' : '#F59E0B', marginLeft: 4 }}>
-                              {record.compositeAlpha > 0 ? '+' : ''}{record.compositeAlpha?.toFixed(3)}
+                        {record.compositeAlpha != null && (
+                          <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 8, background: '#f9fafb', border: '1px solid #e5e7eb', display: 'flex', gap: 16 }}>
+                            <span style={{ fontSize: 11, color: '#6b7280' }}>종합 알파:
+                              <span style={{ fontWeight: 700, color: record.compositeAlpha > 0.2 ? '#10B981' : record.compositeAlpha < -0.2 ? '#EF4444' : '#F59E0B', marginLeft: 4 }}>
+                                {record.compositeAlpha > 0 ? '+' : ''}{record.compositeAlpha?.toFixed(3)}
+                              </span>
                             </span>
-                          </span>
-                          <span style={{ fontSize: 11, color: '#6b7280' }}>감성: {record.sentiment?.positive != null ? `${Math.round(record.sentiment.positive * 100)}%` : '-'}</span>
-                          <span style={{ fontSize: 11, color: '#6b7280' }}>신뢰도: {record.confidence}%</span>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                            <span style={{ fontSize: 11, color: '#6b7280' }}>감성: {record.sentiment?.positive != null ? `${Math.round(record.sentiment.positive * 100)}%` : '-'}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

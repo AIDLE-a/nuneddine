@@ -98,18 +98,13 @@ MAX_ITEMS_PER_SIDE = 5      # 호재/악재 각각 최대 몇 개까지 후보�
 MIN_CORPUS_DOCS_FOR_STOPWORDS = 5  # 이 개수 미만이면 corpus stopword 필터를 건너뜀 (과필터링 방지)
 CORPUS_STOPWORD_MIN_RATIO = 0.6    # 0.35 → 0.6으로 완화 (진짜 공통 단어만 제외)
 
-# [★추가 4] Groq 모델 후보 목록 — 1차가 실패(만료/에러/빈 응답)하면 순서대로 재시도.
-# llama-3.1-8b-instant는 2026-08-16 종료 예정 공지 → openai/gpt-oss-20b가 공식 대체 모델.
-# [★추가 5] 모델별로 response_format(json_object 강제) 사용 여부를 다르게 둠.
-# gpt-oss-20b는 강제 JSON 모드에서 계속 400(json_validate_failed)이 나서 꺼둠 —
-# 대신 _safe_json_parse()의 정규식 추출에 맡김.
+# Groq 모델 후보 목록
 GROQ_MODEL_CANDIDATES = [
     {"model": "llama-3.1-8b-instant", "force_json_mode": True},
     {"model": "openai/gpt-oss-20b", "force_json_mode": False},
 ]
 
-# [★추가 6] 프롬프트 예시에 있던 문장 — 모델이 이 문장을 "그대로" 반환하면
-# 형식 예시를 복사한 것으로 간주하고 무효 처리한다.
+# 프롬프트 예시에 있던 문장
 _PROMPT_EXAMPLE_SUMMARY = (
     "최근 장중 상승 등 강력한 수급 모멘텀이 유지되고 있으나, "
     "차익실현 매물 출회로 인한 단기 변동성이 공존하고 있습니다."
@@ -279,10 +274,6 @@ def _dedup_by_title(items: list[dict], limit: int) -> list[dict]:
 def _explain_fallback(text: str, pipe, top_k: int = 2, extra_stopwords: set = frozenset()) -> list[dict]:
     """
     LLM 실패 시 사용하는 FinBERT Leave-one-out 기반 폴백 XAI.
-    LLM만큼 풍부하진 않지만, 최소한 근거 있는 단어 기여도를 보여줌.
-
-    extra_stopwords: [★추가] 종목명처럼 거의 모든 기사에 공통으로 등장해서
-    변별력이 없는 단어들을 추가로 제외하기 위한 집합.
     """
     if not text:
         return []
@@ -343,9 +334,8 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
         })
 
     sentiment = _calc_weighted_sentiment(scored)
-    calculation_note = _build_calculation_note(scored, news_confidence, total_news_count=len(news))  # [★추가]
+    calculation_note = _build_calculation_note(scored, news_confidence, total_news_count=len(news))
 
-    # Groq LLM으로 AI 종합 브리핑, 호재/악재 뉴스 구분 및 뉴스 칩 생성
     llm_analysis = _llm_sentiment_analysis(news, sentiment)
 
     warnings = _check_uncertainty(news, sentiment, scored)
@@ -375,9 +365,6 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
     )
 
     if has_llm_result:
-        # ── LLM 브리핑 성공 ──
-        # [★추가 2] url 기준으로 원본 뉴스 객체를 찾아 source_title을 채워줌.
-        # 이게 없으면 프론트(InsightItem)에서 출처 캡션/링크 표시 UI가 아예 그려지지 않음.
         news_by_url = {getattr(n, "url", None): n for n in news if getattr(n, "url", None)}
 
         def _resolve_source_title(item_url: str) -> Optional[str]:
@@ -391,7 +378,7 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
                 explanation.append({
                     "type": "positive",
                     "title": item.get("title", ""),
-                    "source_title": _resolve_source_title(item_url),  # [★추가 2]
+                    "source_title": _resolve_source_title(item_url),
                     "chips": item.get("chips", []),
                     "url": item_url
                 })
@@ -401,21 +388,17 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
                 explanation.append({
                     "type": "negative",
                     "title": item.get("title", ""),
-                    "source_title": _resolve_source_title(item_url),  # [★추가 2]
+                    "source_title": _resolve_source_title(item_url),
                     "chips": item.get("chips", []),
                     "url": item_url
                 })
         top_keywords = llm_analysis.get("ai_summary", "뉴스 데이터를 종합 분석 중입니다.")
 
     else:
-        # ── LLM 실패 시 폴백: 기사 단위로 호재/악재 뉴스를 각각 선정 ──
         print("⚠️ LLM 브리핑 생성 실패 — FinBERT XAI 폴백으로 전환")
 
         corpus_stopwords = _compute_corpus_stopwords(scored)
 
-        # 절대 임계값 대신, 0.5를 기준으로 상/하위 점수를 그냥 뽑는 방식.
-        # 기사 점수가 다 애매하게 몰려있어도 "상대적으로 더 긍정/부정적인" 기사를
-        # 항상 골라낼 수 있음.
         pos_sorted = sorted(scored, key=lambda s: s["score"], reverse=True)
         neg_sorted = sorted(scored, key=lambda s: s["score"])
 
@@ -488,7 +471,7 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
         top_keywords=top_keywords,
         volatility=volatility,
         alpha=alpha,
-        calculation_note=calculation_note,  # [★추가]
+        calculation_note=calculation_note,
         bayesian_uncertainty=bayesian_uncertainty,
     )
 
@@ -565,13 +548,6 @@ def _calc_sentiment_alpha(sentiment: Sentiment, scored: list[dict], volatility: 
 
 
 def _safe_json_parse(raw_text: str) -> dict:
-    """
-    [★추가 3] LLM이 만든 JSON의 흔한 문법 오류를 보정해서 파싱 시도.
-    1) 그대로 파싱 시도
-    2) 실패하면 trailing comma(배열/객체 닫기 직전의 불필요한 콤마) 제거 후 재시도
-    3) 그래도 실패하면 원본 텍스트에서 가장 바깥쪽 {...} 블록만 잘라내서 재시도
-    4) 모두 실패하면 빈 딕셔너리 반환 (호출부에서 폴백으로 전환됨)
-    """
     if not raw_text:
         return {}
 
@@ -599,13 +575,6 @@ def _safe_json_parse(raw_text: str) -> dict:
 
 
 def _is_prompt_example_copy(parsed: dict) -> bool:
-    """
-    [★추가 6] LLM이 프롬프트 안의 JSON "형식 예시"를 실제 값으로 착각해서
-    그대로 복사해 반환했는지 감지.
-    현재는 ai_summary 문장이 예시와 완전히 동일한지로 판별.
-    (필요하면 나중에 positive_items/negative_items의 예시 title/chips도
-    같은 방식으로 검사에 추가할 수 있음)
-    """
     if not parsed:
         return False
     summary = (parsed.get("ai_summary") or "").strip()
@@ -613,19 +582,6 @@ def _is_prompt_example_copy(parsed: dict) -> bool:
 
 
 def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
-    """
-    Groq LLM으로 종합 브리핑 + 호재/악재 뉴스 분리 + 키워드 칩 생성.
-
-    ⚠️ 수정: 제목뿐 아니라 description도 함께 제공해서 LLM이 근거 있는
-    요약을 만들도록 하고, "원문에 없는 정보는 만들어내지 말라"는 제약을 명시해
-    수치·사실 환각(hallucination) 위험을 줄임.
-
-    [★추가 4] GROQ_API_KEY 누락 시 로그를 남기고, 1차 모델이 실패하면
-    GROQ_MODEL_CANDIDATES의 다음 모델로 자동 재시도.
-
-    [★추가 6] 응답이 프롬프트 예시 문장을 그대로 복사한 것이면 무효 처리하고
-    다음 모델 후보로 넘어감 (모든 후보가 예시만 복사하면 최종적으로 폴백).
-    """
     try:
         from groq import Groq
         from dotenv import load_dotenv
@@ -639,7 +595,6 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
 
         client = Groq(api_key=api_key)
 
-        # TPM 429를 자주 맞아서 뉴스 개수/설명 길이를 줄여 요청 토큰을 절감
         news_items_text = []
         for idx, n in enumerate(news_list[:6]):
             title = getattr(n, "title", "")
@@ -653,9 +608,6 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
 
         news_text = "\n".join(news_items_text)
 
-        # [★추가 6] JSON 예시를 "이건 형식일 뿐"이라는 게 명백한 <...> placeholder로
-        # 교체. 기존엔 실제로 그럴듯한 완성 문장이라 작은 모델이 정답으로 착각하고
-        # 그대로 복사해서 반환하는 문제가 있었음.
         prompt = f"""주식 투자 분석가로서 아래 뉴스 목록을 분석하세요.
 
 [뉴스 목록]
@@ -694,8 +646,6 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
   ]
 }}"""
 
-        # 모델 후보를 순서대로 시도. llama-3.1-8b-instant가 2026-08-16 종료 예정이므로,
-        # 실패하면 openai/gpt-oss-20b로 자동 폴백.
         last_error = None
         for candidate in GROQ_MODEL_CANDIDATES:
             model_id = candidate["model"]
@@ -714,7 +664,6 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
                 parsed = _safe_json_parse(raw_content)
 
                 if parsed and _is_prompt_example_copy(parsed):
-                    # [★추가 6] 예시 문장을 그대로 베낀 응답은 무효 처리하고 다음 모델로
                     last_error = f"'{model_id}' 응답이 프롬프트 예시를 그대로 복사함 — 무효 처리"
                     print(f"⚠️ {last_error} — 다음 후보 모델로 재시도")
                     continue
@@ -733,18 +682,19 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
         return {}
 
     except Exception as e:
+        print(f"⚠️ LLM 분석 중 오류 발생: {type(e).__name__}: {e}")
+        # Groq json_validate_failed 시 failed_generation에서 JSON 복구 시도
         print(f"⚠️ LLM 분석 중 오류 발생: {e}")
         # Groq json_validate_failed 시 failed_generation에서 JSON 복구
         try:
-            import re
             err_str = str(e)
-            # failed_generation 값 추출
             match = re.search(r"'failed_generation':\s*'((?:[^'\\]|\\.)*)'", err_str)
             if match:
                 raw_json = match.group(1).encode('raw_unicode_escape').decode('unicode_escape')
-                recovered = json.loads(raw_json)
-                print("✅ failed_generation에서 JSON 복구 성공")
-                return recovered
+                recovered = _safe_json_parse(raw_json)
+                if recovered and not _is_prompt_example_copy(recovered):
+                    print("✅ failed_generation에서 JSON 복구 성공")
+                    return recovered
         except Exception as e2:
             print(f"⚠️ JSON 복구도 실패: {e2}")
         return {}

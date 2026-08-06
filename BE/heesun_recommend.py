@@ -1,19 +1,26 @@
 """
 [담당: 희선]
-관심종목 추천 — 하이브리드 방식 (컨텐츠 기반 + Item-Based CF)
+관심종목 추천 — 하이브리드 방식 (섹터 매칭 + 컨텐츠 기반 + Item-Based CF)
 
 콜드스타트 문제 해결 전략:
-  - 서비스 초기(상호작용 데이터 적음): 컨텐츠 기반(가격 상관관계) 추천만 사용
+  - 서비스 초기(상호작용 데이터 적음): 섹터 매칭 + 컨텐츠 기반(가격 상관관계)만 사용
   - 데이터가 쌓이면(임계값 이상): Item-Based CF 비중을 점진적으로 높여서 블렌딩
   - CF는 User-Based가 아닌 Item-Based를 사용 — 유저 수가 적은 초기 서비스에서
     "종목 간 동시 관심등록 패턴"이 "유저 간 취향 유사도"보다 더 안정적으로 계산됨
+
+⚠️ 수정 (섹터/계열 매칭 추가):
+   기존엔 get_expanded_candidate_pool이 sector_kr 파라미터를 받아놓고도
+   전혀 사용하지 않아서 "같은 계열 종목"이라는 신호가 완전히 무시되고 있었음.
+   → 세 번째 추천 소스로 "섹터 매칭"을 추가. 유저 데이터·가격 이력과 무관하게
+     항상 안정적으로 작동하는 신호이므로, 콜드스타트 상태에서도 고정 비중(30%)으로
+     항상 반영되도록 설계함.
 
 후보군 확장:
   - KRX에서 받은 kospi200.csv / kosdaq150.csv를 유니버스로 사용해
     후보군을 6~12개 수준에서 최대 수백 개 수준으로 확장함.
 
 환경변수:
-  USE_MOCK_DATA=false  실제 Firestore 상호작용 데이터 + yfinance 상관관계 사용
+  USE_MOCK_DATA=false  실제 Firestore 상호작용 데이터 + yfinance 상관관계/섹터 사용
 """
 import os
 import pandas as pd
@@ -22,14 +29,20 @@ from pathlib import Path
 
 USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
 
-# CF로 전환하는 최소 상호작용 데이터 개수 (이 미만이면 컨텐츠 기반만 사용)
+# CF로 전환하는 최소 상호작용 데이터 개수 (이 미만이면 컨텐츠+섹터만 사용)
 CF_MIN_INTERACTIONS = 100
 # CF 비중이 최대로 커지는 상호작용 개수 (이 이상이면 CF 비중 상한 도달)
 CF_MAX_WEIGHT_AT = 1000
 CF_MAX_WEIGHT = 0.7  # 데이터가 아무리 많아도 컨텐츠 기반을 완전히 배제하지는 않음
 
+# 섹터(계열) 매칭에 항상 부여하는 고정 비중.
+# 가격 상관관계나 CF 데이터가 부족해도 "같은 업종"이라는 신호는 항상 신뢰할 수 있으므로
+# 콜드스타트 여부와 무관하게 고정값으로 반영한다.
+SECTOR_FIXED_WEIGHT = 0.3
+
 _DATA_DIR = Path(__file__).parent / "data"
 _UNIVERSE_DF = None  # 최초 호출 시 1회 로드 후 캐시
+_SECTOR_CACHE: dict[str, str] = {}  # ticker -> sector/industry 문자열 캐시 (프로세스 내 재사용)
 
 # 파일명 -> yfinance 티커 접미사 매핑
 _UNIVERSE_FILES = {
@@ -87,7 +100,9 @@ def get_expanded_candidate_pool(
 ) -> list[str]:
     """
     CSV로 준비한 코스피200/코스닥150 전체 종목 중에서 후보군을 뽑는다.
-    - 무작위로 섞어서 후보군 다양성도 확보 (섹터 필터링은 main.py에서 이미 후처리)
+    - 무작위로 섞어서 후보군 다양성도 확보
+    - 실제 "같은 섹터 우선순위"는 get_hybrid_recommendations 안에서
+      섹터 스코어링으로 반영됨 (후보군 자체는 넓게 유지해서 다양한 후보를 확보)
     - CSV가 없으면 빈 리스트를 반환해서 main.py가 기존 방식(야후+섹터폴백)으로
       자동 대체하도록 함 (안전한 폴백 유지)
     """
@@ -103,6 +118,57 @@ def get_expanded_candidate_pool(
     import random
     rng = random.Random(seed)
     return rng.sample(pool, max_candidates)
+
+
+# -----------------------------------------------------------------------------
+# 0. 섹터(계열) 조회 — 컨텐츠/CF와 별개인 세 번째 추천 신호
+# -----------------------------------------------------------------------------
+
+def _get_sector_raw(ticker: str) -> str:
+    """
+    yfinance에서 종목의 sector(없으면 industry)를 조회한다. 결과는 프로세스
+    내에서 캐시해서 같은 티커를 반복 조회하지 않도록 한다.
+    실패 시 빈 문자열을 반환 — 이 경우 해당 종목은 섹터 매칭 대상에서 자연히 제외됨.
+    """
+    if ticker in _SECTOR_CACHE:
+        return _SECTOR_CACHE[ticker]
+
+    sector = ""
+    try:
+        import yfinance as yf
+        info = yf.Ticker(ticker).info
+        sector = info.get("sector") or info.get("industry") or ""
+    except Exception:
+        sector = ""
+
+    _SECTOR_CACHE[ticker] = sector
+    return sector
+
+
+def _get_sector_based_recommendations(ticker: str, candidate_tickers: list[str]) -> list[dict]:
+    """
+    기준 종목과 섹터/업종이 같은 후보들에게 점수를 부여한다.
+    가격 이력이나 유저 상호작용 데이터가 전혀 없어도 항상 동작하는,
+    가장 안정적인 콜드스타트 대응 신호.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    base_sector = _get_sector_raw(ticker)
+    if not base_sector:
+        return []
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        cand_sectors = dict(zip(candidate_tickers, ex.map(_get_sector_raw, candidate_tickers)))
+
+    scores = []
+    for cand, sector in cand_sectors.items():
+        if not sector:
+            continue
+        if sector == base_sector:
+            # 완전 일치 → 만점. (세분화하고 싶으면 이후 유사도 스코어로 확장 가능)
+            scores.append({"ticker": cand, "score": 1.0, "source": "sector"})
+
+    return scores
 
 
 # -----------------------------------------------------------------------------
@@ -257,7 +323,7 @@ def _get_cf_recommendations(ticker: str, top_k: int = 10) -> list[dict]:
 
 
 # -----------------------------------------------------------------------------
-# 4. 하이브리드 블렌딩 — 데이터 양에 따라 CF 비중을 점진적으로 조절
+# 4. 하이브리드 블렌딩 — 섹터(고정) + 컨텐츠/CF(콜드스타트에 따라 조절)
 # -----------------------------------------------------------------------------
 
 def _calc_cf_weight(interaction_count: int) -> float:
@@ -268,33 +334,50 @@ def _calc_cf_weight(interaction_count: int) -> float:
     return round(min(max(ratio, 0.0), 1.0) * CF_MAX_WEIGHT, 2)
 
 
+def _normalize(recs: list[dict]) -> dict[str, float]:
+    if not recs:
+        return {}
+    max_score = max(abs(r["score"]) for r in recs) or 1.0
+    return {r["ticker"]: r["score"] / max_score for r in recs}
+
+
 def _blend_recommendations(
-    content_recs: list[dict], cf_recs: list[dict], cf_weight: float, top_k: int = 6
+    content_recs: list[dict],
+    cf_recs: list[dict],
+    sector_recs: list[dict],
+    cf_weight: float,
+    top_k: int = 6,
 ) -> list[dict]:
     """
-    컨텐츠 기반과 CF 추천을 점수 정규화 후 가중합으로 병합한다.
-    같은 종목이 양쪽에 다 나오면 두 점수를 합산해 상위 노출되도록 함.
-    """
-    def _normalize(recs: list[dict]) -> dict[str, float]:
-        if not recs:
-            return {}
-        max_score = max(abs(r["score"]) for r in recs) or 1.0
-        return {r["ticker"]: r["score"] / max_score for r in recs}
+    섹터 매칭(고정 30%) + 컨텐츠/CF(나머지 70%, cf_weight 비율로 배분)를
+    점수 정규화 후 가중합으로 병합한다.
 
+    - SECTOR_FIXED_WEIGHT(0.3)는 유저 데이터·가격 이력과 무관하게 항상 반영되는
+      "같은 계열" 신호. 콜드스타트 상태에서도 꺼지지 않음.
+    - 나머지 0.7을 기존처럼 cf_weight 비율로 컨텐츠/CF에 배분.
+    """
     content_norm = _normalize(content_recs)
     cf_norm = _normalize(cf_recs)
+    sector_norm = _normalize(sector_recs)  # 섹터는 이미 0/1이라 사실상 그대로 유지됨
 
-    all_tickers = set(content_norm) | set(cf_norm)
+    remaining_weight = 1 - SECTOR_FIXED_WEIGHT  # 0.7
+    content_weight = remaining_weight * (1 - cf_weight)
+    cf_actual_weight = remaining_weight * cf_weight
+
+    all_tickers = set(content_norm) | set(cf_norm) | set(sector_norm)
     blended = []
     for t in all_tickers:
-        content_score = content_norm.get(t, 0.0) * (1 - cf_weight)
-        cf_score = cf_norm.get(t, 0.0) * cf_weight
-        final_score = content_score + cf_score
+        score = (
+            content_norm.get(t, 0.0) * content_weight
+            + cf_norm.get(t, 0.0) * cf_actual_weight
+            + sector_norm.get(t, 0.0) * SECTOR_FIXED_WEIGHT
+        )
         blended.append({
             "ticker": t,
-            "score": round(final_score, 3),
+            "score": round(score, 3),
             "from_cf": t in cf_norm,
             "from_content": t in content_norm,
+            "from_sector": t in sector_norm,
         })
 
     blended.sort(key=lambda x: -x["score"])
@@ -310,10 +393,12 @@ def get_hybrid_recommendations(
 ) -> dict:
     """
     하이브리드 관심종목 추천의 진입점.
+    섹터 매칭 + 컨텐츠 기반(가격 상관관계) + Item-Based CF를 함께 사용한다.
 
     Returns:
         {
-            "results": [{"ticker": ..., "score": ..., "from_cf": bool, "from_content": bool}, ...],
+            "results": [{"ticker": ..., "score": ..., "from_cf": bool,
+                          "from_content": bool, "from_sector": bool}, ...],
             "cf_weight": float,
             "interaction_count": int,
         }
@@ -322,6 +407,7 @@ def get_hybrid_recommendations(
     cf_weight = _calc_cf_weight(interaction_count)
 
     content_recs = _get_content_based_recommendations(ticker, candidate_tickers)
+    sector_recs = _get_sector_based_recommendations(ticker, candidate_tickers)
 
     cf_recs = []
     if cf_weight > 0:
@@ -329,10 +415,10 @@ def get_hybrid_recommendations(
         if not cf_recs:
             cf_weight = 0.0
 
-    if not content_recs and not cf_recs:
+    if not content_recs and not cf_recs and not sector_recs:
         results = []
     else:
-        results = _blend_recommendations(content_recs, cf_recs, cf_weight, top_k=top_k)
+        results = _blend_recommendations(content_recs, cf_recs, sector_recs, cf_weight, top_k=top_k)
 
     return {
         "results": results,
@@ -359,6 +445,8 @@ if __name__ == "__main__":
     print(f"CF 비중: {result['cf_weight']} (상호작용 {result['interaction_count']}건)\n")
     for r in result["results"]:
         source = []
+        if r["from_sector"]:
+            source.append("섹터")
         if r["from_content"]:
             source.append("컨텐츠")
         if r["from_cf"]:

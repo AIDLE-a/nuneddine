@@ -887,3 +887,32 @@ def _get_mock_data(ticker: str) -> StockDataResult:
         news=news,
         info_warning=_check_info_uncertainty(news),
     )
+
+# ↓↓↓ yubin_data.py 파일 맨 끝에 이 함수만 추가하세요 (기존 코드는 그대로 둠) ↓↓↓
+
+def get_price_on_date(ticker: str, date: str) -> float | None:
+    """
+    특정 날짜(YYYY-MM-DD) 종가 조회 — batch_collect.py용
+    해당일이 휴장일이면 그 이후 첫 거래일 종가를 반환
+    """
+    import math
+    try:
+        target = datetime.strptime(date, "%Y-%m-%d")
+        start = (target - timedelta(days=1)).strftime("%Y-%m-%d")
+        end = (target + timedelta(days=7)).strftime("%Y-%m-%d")
+
+        stock = yf.Ticker(ticker)
+        hist = stock.history(start=start, end=end)
+        if hist.empty:
+            return None
+
+        for idx, row in hist.iterrows():
+            if idx.strftime("%Y-%m-%d") >= date:
+                close = float(row["Close"])
+                if math.isnan(close):
+                    continue
+                return round(close, 2)
+        return None
+    except Exception as e:
+        print(f"⚠️ 특정일 종가 조회 오류: {e}")
+        return None

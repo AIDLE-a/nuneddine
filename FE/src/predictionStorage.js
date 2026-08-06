@@ -1,47 +1,50 @@
 // FE/src/predictionStorage.js
-// 예측 기록 localStorage 유틸리티 — AiReportCard, HistoryPage에서 공통 사용
+// 예측 기록 조회/검증 유틸리티 — 백엔드(prediction_records/*.json)와 통신
+// 저장은 /api/analyze 호출 시 서버가 자동 처리, 여기선 조회 + 검증 요청만 담당
 
-const PRED_KEY = 'nuneddine_predictions';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
-export function savePrediction(ticker, stockName, record) {
+export async function loadPredictions(ticker) {
   try {
-    const all = JSON.parse(localStorage.getItem(PRED_KEY) || '{}');
-    if (!all[ticker]) all[ticker] = { name: stockName, records: [] };
-    all[ticker].records = [
-      record,
-      ...all[ticker].records.filter(r => r.date !== record.date)
-    ].slice(0, 365);
-    all[ticker].name = stockName;
-    localStorage.setItem(PRED_KEY, JSON.stringify(all));
+    const res = await fetch(`${API_BASE}/api/prediction-records/${ticker}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.records || [];
   } catch (e) {
-    console.warn('예측 기록 저장 실패:', e);
+    console.warn('예측 기록 조회 실패:', e);
+    return [];
   }
 }
 
-export function loadPredictions(ticker) {
+export async function loadAllPredictions() {
   try {
-    const all = JSON.parse(localStorage.getItem(PRED_KEY) || '{}');
-    return all[ticker]?.records || [];
-  } catch (e) { return []; }
-}
-
-export function loadAllPredictions() {
-  try {
-    const all = JSON.parse(localStorage.getItem(PRED_KEY) || '{}');
-    return Object.entries(all).map(([ticker, data]) => ({
-      ticker,
-      name: data.name,
-      records: data.records || [],
-      lastDate: data.records?.[0]?.date || '',
+    const res = await fetch(`${API_BASE}/api/prediction-records`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).map(r => ({
+      ticker: r.ticker,
+      name: r.name,
+      recordCount: r.record_count,
+      lastDate: r.last_updated || '',
     })).sort((a, b) => b.lastDate.localeCompare(a.lastDate));
-  } catch (e) { return []; }
+  } catch (e) {
+    console.warn('전체 예측 기록 조회 실패:', e);
+    return [];
+  }
 }
 
-export function deletePredictionRecord(ticker, date) {
+// 기록실 '검증' 버튼이 호출 — 즉석으로 실제값 조회 + 서버에 결과 저장
+export async function verifyPrediction(ticker, runDate, horizon = 'd1') {
   try {
-    const all = JSON.parse(localStorage.getItem(PRED_KEY) || '{}');
-    if (!all[ticker]) return;
-    all[ticker].records = all[ticker].records.filter(r => r.date !== date);
-    localStorage.setItem(PRED_KEY, JSON.stringify(all));
-  } catch (e) {}
+    const params = new URLSearchParams({ ticker, run_date: runDate, horizon });
+    const res = await fetch(`${API_BASE}/api/verify-prediction?${params}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || '검증 실패');
+    }
+    return await res.json();
+  } catch (e) {
+    console.warn('예측 검증 실패:', e);
+    throw e;
+  }
 }

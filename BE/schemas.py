@@ -19,6 +19,18 @@
   (긍정/부정 비율 계산 방식 설명 — 상세보기용)
 - ⚠️ 정리: NewsInsight/SentimentResult가 파일 내에 실수로 두 번씩 정의되어 있던 것을
   하나로 통합함 (동작엔 영향 없었지만 혼동 방지)
+- [★버그 수정 2026-08-02] StockAnalysisResponse에 sentiment_alpha 필드가 빠져 있어서
+  발생한 데이터 정합성 버그 수정:
+    1) 프론트(DetailReportModal.jsx)가 이 필드를 못 받아서
+       sentiment.positive - sentiment.negative로 직접 재계산 → 변동성 보정 전
+       원본값(예: +0.326)을 표시하게 됨
+    2) main.py의 composite_alpha 계산식도 이 필드가 없어서 감성 알파(30%)를
+       아예 빼먹고 수급+재무+모멘텀만으로 계산 → "종합 알파" 값이 실제보다
+       낮게(또는 왜곡되게) 나옴
+  → StockAnalysisResponse에 sentiment_alpha: float = 0.0 필드를 추가하고,
+    main.py에서 sentiment_result.alpha.sentiment_alpha(변동성 보정된 최종값)를
+    그대로 채워 넣도록 수정함. 프론트는 이제 재계산하지 말고 이 필드를
+    그대로 표시해야 함.
 """
 from pydantic import BaseModel
 from typing import List, Optional
@@ -148,7 +160,7 @@ class SentimentTrend(BaseModel):
 
 class AlphaFactor(BaseModel):
     """퀀트 펀드 방식 알파 팩터 — 각 에이전트가 생성"""
-    sentiment_alpha: float = 0.0    # 감성 알파 (-1 ~ +1)
+    sentiment_alpha: float = 0.0    # 감성 알파 (-1 ~ +1) — 변동성 보정 완료된 최종값
     flow_alpha: float = 0.0         # 수급 알파 (-1 ~ +1)
     financial_alpha: float = 0.0    # 재무 알파 (-1 ~ +1)
     momentum_alpha: float = 0.0     # 모멘텀 알파 (-1 ~ +1)
@@ -164,8 +176,8 @@ class SentimentResult(BaseModel):
     trend: Optional[SentimentTrend] = None
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
-    alpha: Optional[AlphaFactor] = None
-    bayesian_uncertainty: Optional[float] = None  # MC Dropout Bayesian 불확실성  # 퀀트 알파 팩터
+    alpha: Optional[AlphaFactor] = None  # 퀀트 알파 팩터 (sentiment_alpha 포함)
+    bayesian_uncertainty: Optional[float] = None  # MC Dropout Bayesian 불확실성
     calculation_note: Optional[str] = None  # 긍정/부정 비율 계산 방식 설명 (상세보기용)
 
 
@@ -183,7 +195,8 @@ class PredictionResult(BaseModel):
     """희선이 만드는 결과물 — 예측 불확실성을 스스로 판단해서 같이 반환"""
     prediction: List[Prediction]  # day 1~7 리스트
     prediction_warning: Optional[str] = None
-    volume_analysis: Optional[str] = None  # [★추가] "최근 거래량이 25% 급증하여 신뢰도가 높습니다" 등의 텍스트 분석 결과
+    volume_history: List[int] = []          # 최근 7영업일 거래량
+    volume_analysis: Optional[str] = None   # "최근 거래량이 25% 급증하여..." 등의 텍스트 분석 결과
 
 
 # ── 최종 통합 응답 (채민이 받는 형식) ──
@@ -191,6 +204,13 @@ class StockAnalysisResponse(BaseModel):
     """
     Critic 에이전트가 3개 에이전트 결과 + 자체 모순 검증을 합쳐서 만드는 최종 응답.
     채민은 이 형식만 보고 프론트엔드를 만들면 됨.
+
+    ⚠️ 알파 팩터 관련 필드는 반드시 아래 규칙을 지킬 것:
+    - sentiment_alpha / flow_alpha / financial_alpha / momentum_alpha / composite_alpha는
+      전부 백엔드(main.py)가 계산해서 채워주는 "최종값"이다.
+    - 프론트엔드는 이 값들을 절대 재계산하지 말고 그대로 표시만 해야 한다.
+      (과거에 프론트가 sentiment.positive - sentiment.negative로 감성 알파를
+       직접 재계산하면서, 변동성 보정이 반영된 백엔드 값과 어긋나는 버그가 있었음)
     """
     ticker: str
     price: float
@@ -203,25 +223,29 @@ class StockAnalysisResponse(BaseModel):
     financial: Optional[FinancialData] = None
     realtime: List[RealtimePrice] = []
     news_uncertainty: Optional[UncertaintyResult] = None  # 뉴스 에이전트 불확실성
+
+    # ── 알파 팩터 (전부 백엔드 계산값, 프론트 재계산 금지) ──
+    sentiment_alpha: float = 0.0  # ★[버그 수정] 신규 추가 — 감성 알파 (변동성 보정 완료)
     flow_alpha: float = 0.0       # 수급 알파 팩터
     financial_alpha: float = 0.0  # 재무 알파 팩터
     momentum_alpha: float = 0.0   # 모멘텀 알파 팩터
+    composite_alpha: float = 0.0  # 종합 알파 팩터 (감성 30% + 수급 30% + 재무 20% + 모멘텀 20%)
+
     market_index: Optional[dict] = None  # 코스피/코스닥 지수
     news: List[NewsItem]
     prediction: List[Prediction]  # 변경: 단건 -> 1일 단위 리스트
     sentiment: Sentiment
     warnings: List[str]
     confidence_score: int
-    confidence_breakdown: Optional[dict] = None  # [★필수 추가] 정보/신호/예측/시장 서브스코어 breakdown
+    confidence_breakdown: Optional[dict] = None  # 정보/신호/예측/시장 서브스코어 breakdown
     explanation: List[NewsInsight] = []
     trend: Optional[SentimentTrend] = None
     top_keywords: Optional[str] = None
     volatility: Optional[float] = None
     calculation_note: Optional[str] = None  # 긍정/부정 비율 계산 방식 설명 (상세보기용)
-    volume_analysis: Optional[str] = None  # [★추가] 리포트에 들어갈 거래량 분석 요약 문구
+    volume_analysis: Optional[str] = None  # 리포트에 들어갈 거래량 분석 요약 문구
     news_agent_report: Optional[str] = None  # 뉴스 에이전트 분석 리포트
     news_agent_confidence: Optional[float] = None  # 뉴스 에이전트 신뢰도
     news_agent_epistemic: Optional[float] = None   # Epistemic 불확실성
     news_agent_aleatoric: Optional[float] = None   # Aleatoric 불확실성
     critic_report: Optional[str] = None  # LLM Critic 에이전트 리포트
-    composite_alpha: float = 0.0  # 종합 알파 팩터

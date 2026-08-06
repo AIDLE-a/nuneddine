@@ -5,6 +5,27 @@
 2. Prophet + Volume Regressor (거래량 반영 시계열 예측)
 3. 2단계 감성 점수(Sentiment) 결합 휴리스틱 보정
 4. 일자별 예측 불확실성(Uncertainty Score) & 거래량 분석 생성
+
+⚠️ [★버그 수정 2026-08-02] 캐시 계층 설계 노트:
+   - 이 파일의 _run_prophet() 캐시(1시간, 아래 _cache 변수)는 "Prophet 원본
+     예측"만 캐싱한다. 감성/시장지수/증권사 목표주가 보정(_adjust_with_*)은
+     predict() 호출마다 항상 새로 계산된다.
+   - 예전에는 main.py의 /api/analyze에 응답 캐싱이 없어서, 이 predict()가
+     호출될 때마다 sentiment/market_index 등 입력값이 미세하게 달라지고,
+     그 결과 같은 날짜(day)의 예측가·신뢰구간이 화면마다(대시보드 vs 상세
+     리포트) 어긋나 보이는 버그가 있었다.
+   - 지금은 main.py의 /api/analyze에 10분 TTL의 응답 레벨 캐싱이 추가되어,
+     이 predict() 함수 자체는 같은 10분 창 안에서 한 번만 호출된다. 그래서
+     이 파일 내부에서 감성/시장 보정까지 이중으로 캐싱할 필요는 없다.
+   - 즉 캐시 계층은 의도적으로 이렇게 나뉜다:
+       · Prophet 원본(_cache, 이 파일): 1시간 — 기본 추세는 자주 안 바뀌고
+         재학습 비용이 크므로 길게 유지
+       · /api/analyze 전체 응답(main.py의 _analyze_cache): 10분 — 감성/시장
+         지표는 더 자주 갱신되는 게 합리적이므로 짧게 유지
+   - 두 TTL이 다른 것은 버그가 아니라 의도된 설계입니다. 값을 일치시키지
+     마세요. 만약 이 predict() 함수를 /api/analyze 캐싱 없이 단독으로
+     호출하는 다른 코드 경로가 생긴다면, 그때는 이 함수 안에서도 최종
+     보정 결과 전체를 캐싱하도록 다시 변경해야 합니다.
 """
 
 import os
@@ -22,7 +43,7 @@ USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
 SENTIMENT_ADJUSTMENT_WEIGHT = 0.02
 FORECAST_DAYS = 7
 
-# 종목별 Prophet 결과 캐시 (1시간 유효)
+# 종목별 Prophet 원본 예측 결과 캐시 (1시간 유효) — 감성/시장 보정 전 값만 캐싱됨
 _cache: dict = {}
 _CACHE_TTL = 3600
 
@@ -38,7 +59,14 @@ def predict(
     market_index: dict = None,
     target_mean_price: float = None,
 ) -> PredictionResult:
-    """오케스트레이터가 호출하는 최상위 예측 함수"""
+    """
+    오케스트레이터(main.py의 /api/analyze)가 호출하는 최상위 예측 함수.
+
+    ⚠️ 이 함수는 /api/analyze의 10분 응답 캐시 안에서만 호출된다는 전제로
+    설계되어 있음. 만약 이 함수를 캐싱 없이 반복 호출하는 새 경로가 생긴다면,
+    감성/시장/목표주가 보정 결과가 호출마다 달라질 수 있으니 별도 캐싱을
+    추가해야 한다 (파일 상단 주석 참고).
+    """
     if USE_MOCK:
         base = _get_mock_prediction(price)
         volume_history = [1200000, 1500000, 900000, 1100000, 1300000, 2100000, 1800000]
@@ -82,7 +110,11 @@ def predict(
 # ==========================================
 
 def _run_prophet(ticker: str, price: float) -> list[Prediction]:
-    """캐시 적용 및 Prophet 모델 연동"""
+    """
+    캐시 적용 및 Prophet 모델 연동.
+    ⚠️ 이 캐시는 "Prophet 원본 예측"만 담는다. 감성/시장/목표주가 보정은
+    여기 포함되지 않고 predict()에서 매번 별도로 적용된다 (파일 상단 주석 참고).
+    """
     cached = _cache.get(ticker)
     if cached and time.time() - cached["ts"] < _CACHE_TTL:
         print(f"⚡ [{ticker}] Prophet 예측 캐시 사용")
