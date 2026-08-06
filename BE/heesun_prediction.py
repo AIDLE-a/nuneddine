@@ -21,30 +21,30 @@ FORECAST_DAYS = 7
 _cache: dict = {}
 _CACHE_TTL = 3600
 
-
 def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult:
-    """메인 함수 — 오케스트레이터가 이 함수만 호출함"""
+    cached = _cache.get(ticker)
+    if cached and time.time() - cached["ts"] < _CACHE_TTL:
+        return cached["result"]   # 최종 결과를 통째로 캐싱/재사용
+
     if USE_MOCK:
         base = _get_mock_prediction(price)
-        # Mock 데이터용 가상 거래량 생성 (최근 7일치)
         volume_history = [1200000, 1500000, 900000, 1100000, 1300000, 2100000, 1800000]
-        volume_analysis = _analyze_volume(volume_history)
     else:
-        base = _run_prophet(ticker, price)
-        # ★ 실데이터 작동 시 yfinance를 통해 과거 7일간의 실제 거래량 가져오기
+        base = _run_prophet_raw(ticker)  # Prophet 원본만 (기존 캐시 로직 분리)
         volume_history = _get_actual_volume_history(ticker)
-        volume_analysis = _analyze_volume(volume_history)
 
+    volume_analysis = _analyze_volume(volume_history)
     adjusted = [_adjust_with_sentiment(day, sentiment) for day in base]
     prediction_warning = _check_prediction_uncertainty(adjusted)
-    
-    # ★ schemas.py의 PredictionResult 정의에 맞게 volume_history와 volume_analysis를 추가하여 반환
-    return PredictionResult(
-        prediction=adjusted, 
+
+    result = PredictionResult(
+        prediction=adjusted,
         prediction_warning=prediction_warning,
-        volume_history=volume_history,        # ★ 추가
-        volume_analysis=volume_analysis       # ★ 추가
+        volume_history=volume_history,
+        volume_analysis=volume_analysis,
     )
+    _cache[ticker] = {"result": result, "ts": time.time()}
+    return result
 
 
 def _run_prophet(ticker: str, price: float) -> list[Prediction]:

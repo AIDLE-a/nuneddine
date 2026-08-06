@@ -16,6 +16,40 @@
 
    ⚠️ 이 필드를 프론트가 받으려면 schemas.py의 StockAnalysisResponse에
    `confidence_breakdown: dict | None = None` 필드를 추가해야 함 (별도 안내 참고).
+
+⚠️ 수정 노트 [★버그 수정 2026-08-02] — 데이터 정합성 버그 두 가지 해결:
+
+   1) sentiment_alpha 필드 누락 버그
+      schemas.py의 StockAnalysisResponse에 sentiment_alpha 필드가 없어서:
+        a) 프론트(DetailReportModal.jsx)가 이 값을 못 받아 sentiment.positive -
+           sentiment.negative로 직접 재계산 → 변동성 보정 전 원본값을 표시
+           (리포트 상단요약 vs AI Critic 본문의 감성 알파 값이 서로 다르게
+           보이던 버그의 원인)
+        b) 이 파일의 composite_alpha 계산식도 sentiment_alpha를 아예 빼먹고
+           수급(30%)+재무(20%)+모멘텀(20%) = 가중치 합 0.70으로만 계산
+           (감성이 긍정인데도 반영이 안 돼서 "감성 긍정인데 예측 하락 —
+           모순" 경고가 실제보다 과장되게 뜨던 버그의 원인)
+      → schemas.py에 sentiment_alpha 필드를 추가하고, 이 파일에서
+        sentiment_result.alpha.sentiment_alpha(변동성 보정된 최종값)를
+        응답과 composite_alpha 계산식에 반영하도록 수정함.
+
+   2) /api/analyze 캐싱 부재로 인한 값 흔들림
+      기존엔 /api/analyze가 호출될 때마다 감성 분석(LLM 호출 포함)과 예측
+      보정을 처음부터 다시 계산했음 → 사용자가 대시보드를 볼 때와 상세
+      리포트를 열 때(몇 분 차이) 서로 다른 sentiment/prediction 값을 받게
+      되어 화면마다 예측가·신뢰구간·알파 값이 어긋나는 버그가 있었음.
+      → 티커별로 전체 응답을 짧은 TTL(10분)로 캐싱해서, 같은 캐시 창
+        안에서는 어느 화면에서 요청하든 완전히 동일한 응답을 받도록 수정.
+      → 캐시가 비어있는 순간 동시에 여러 요청이 들어와도 계산이 한 번만
+        일어나도록 락(threading.Lock)을 추가함 (캐시 스탬피드 방지).
+      → force_refresh 쿼리 파라미터로 캐시를 무시하고 강제 재계산 가능.
+
+   ⚠️ 캐시 계층 설계 노트:
+   - Prophet 원본 예측(heesun_forecast.py의 _run_prophet): 1시간 캐시
+     → 기본 추세는 자주 안 바뀌고, 재학습 비용이 크므로 길게 유지
+   - 이 파일의 /api/analyze 응답: 10분 캐시
+     → 감성/시장 지표는 더 자주 갱신되는 게 합리적이므로 짧게 유지
+   - 두 캐시의 TTL이 다른 건 의도된 설계입니다. 일치시키지 마세요.
 """
 from dotenv import load_dotenv
 from pathlib import Path
@@ -23,6 +57,8 @@ load_dotenv(dotenv_path=Path(__file__).parent / ".env")
 
 import math
 import os
+import time
+import threading
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,6 +88,14 @@ app = FastAPI(title="주식 리서치 통합 서버")
 # 추천시스템 오프라인 평가 결과 메모리 캐시 변수
 EVALUATION_CACHE = None
 
+# ── ★[버그 수정] /api/analyze 응답 캐시 ──
+# 티커별로 전체 StockAnalysisResponse를 짧은 TTL로 캐싱해서,
+# 같은 캐시 창 안에서는 대시보드/상세 리포트/재방문 등 어느 경로로 요청해도
+# 완전히 동일한 값(예측가, 신뢰구간, 알파 팩터 등)을 받도록 보장한다.
+_analyze_cache: dict = {}
+_ANALYZE_CACHE_TTL = 600  # 10분
+_analyze_lock = threading.Lock()
+
 # CORS 에러 해결을 위해 allow_origins 설정 (Vite 프론트엔드 호환)
 app.add_middleware(
     CORSMiddleware,
@@ -76,9 +120,10 @@ def _find_bad_floats(obj, path="root"):
             bad.extend(_find_bad_floats(v, f"{path}[{i}]"))
     return bad
 
-def _build_reason_text(base_ticker: str, from_content: bool, from_cf: bool, sector_kr: str) -> str:
-    """연관 종목 추천 이유를 사람이 읽을 수 있는 문장으로 변환 (프론트 '?' 버튼 툴팁용)"""
+def _build_reason_text(base_ticker: str, from_content: bool, from_cf: bool, from_sector: bool, sector_kr: str) -> str:
     reasons = []
+    if from_sector:
+        reasons.append(f"{base_ticker}와(과) 같은 업종에 속한 종목입니다")
     if from_content:
         reasons.append(f"최근 90일간 {base_ticker}와(과) 주가 움직임이 비슷했습니다")
     if from_cf:
@@ -262,8 +307,9 @@ def related_stocks(ticker: str):
                     item = dict(info_map[t])
                     reason = reason_map[t]
                     item["reason"] = _build_reason_text(
-                        ticker, reason["from_content"], reason["from_cf"], base_sector_kr
+                        ticker, reason["from_content"], reason["from_cf"], reason["from_sector"], base_sector_kr
                     )
+                    item["from_sector"] = reason["from_sector"]
                     item["from_content"] = reason["from_content"]
                     item["from_cf"] = reason["from_cf"]
                     results.append(item)
@@ -772,103 +818,148 @@ def get_evaluation_report(force_refresh: bool = False):
 
 # ── 희선 담당 (주식 리서치 오케스트레이터) ──
 @app.get("/api/analyze", response_model=StockAnalysisResponse)
-def analyze(ticker: str = "005930.KS"):
-    try:
-        # 1단계: 뉴스 수집 및 주가 기본 데이터 수집
-        data_result = data_service.get_stock_data(ticker)
-        stock_name = _KR_NAME_MAP.get(ticker, ticker)
-        
-        # 2단계: 뉴스 감성 분석 및 XAI
-        news_confidence = getattr(getattr(data_result, "news_uncertainty", None), "confidence", 1.0)
-        sentiment_result = sentiment_service.analyze(data_result.news, news_confidence=news_confidence)
-        
-        # 3단계: Prophet 기반 7일 주가 예측
-        prediction_result = prediction_service.predict(
-            ticker, data_result.price, sentiment_result.sentiment
-        )
-        
-        # 4단계: Critic 모순 검증
-        # [★추가] critic.review()가 이제 4번째 값으로 confidence_breakdown(dict)도 반환.
-        # 프론트(ReliabilityCard.jsx)가 이 값을 그대로 표시하도록 응답에 실어줌.
-        warnings, confidence_score, llm_report, confidence_breakdown = critic.review(
-            data_result, sentiment_result, prediction_result
-        )
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+def analyze(ticker: str = "005930.KS", force_refresh: bool = False):
+    """
+    ⚠️ [★버그 수정] 응답 레벨 캐싱 추가 (TTL 10분)
+    - 같은 티커에 대해 캐시가 유효하면 재계산 없이 그대로 반환.
+      → 대시보드/상세 리포트/재방문 등 어느 경로로 요청해도 같은 창(10분)
+        안에서는 예측가·신뢰구간·알파 값이 항상 동일하게 유지됨.
+    - _analyze_lock으로 캐시 미스 시 동시 요청에 의한 중복 계산(캐시
+      스탬피드)을 방지함.
+    - force_refresh=true 쿼리 파라미터로 캐시를 무시하고 강제 재계산 가능
+      (예: 사용자가 "다시 분석하기" 버튼을 눌렀을 때).
+    """
+    cached = _analyze_cache.get(ticker)
+    if cached and not force_refresh and time.time() - cached["ts"] < _ANALYZE_CACHE_TTL:
+        remaining = int(_ANALYZE_CACHE_TTL - (time.time() - cached["ts"]))
+        print(f"⚡ [{ticker}] /api/analyze 캐시 사용 (남은 시간: {remaining}초)")
+        return cached["response"]
 
-    #yeonwoo_sentiment.py의 explanation 스키마(type/title/chips/url)에 맞춤.
-    pos_pct = int(sentiment_result.sentiment.positive * 100)
-    neg_pct = int(sentiment_result.sentiment.negative * 100)
+    with _analyze_lock:
+        # 락을 기다리는 동안 다른 요청이 이미 캐시를 채웠을 수 있으니 재확인
+        cached = _analyze_cache.get(ticker)
+        if cached and not force_refresh and time.time() - cached["ts"] < _ANALYZE_CACHE_TTL:
+            return cached["response"]
 
-    raw_explanation = getattr(sentiment_result, "explanation", []) or []
-    if raw_explanation and hasattr(raw_explanation[0], "dict"):
-        raw_explanation = [item.dict() for item in raw_explanation]
+        try:
+            # 1단계: 뉴스 수집 및 주가 기본 데이터 수집
+            data_result = data_service.get_stock_data(ticker)
+            stock_name = _KR_NAME_MAP.get(ticker, ticker)
 
-    if not raw_explanation:
-        # 실제 근거가 없으면 지어내지 않고 있는 그대로 알림
-        raw_explanation = [{
-            "type": "neutral",
-            "title": "이번 분석에서는 호재/악재를 구분할 만큼 뉴스 근거가 충분하지 않습니다.",
-            "chips": [],
-            "url": "#",
-        }]
+            # 2단계: 뉴스 감성 분석 및 XAI
+            news_confidence = getattr(getattr(data_result, "news_uncertainty", None), "confidence", 1.0)
+            sentiment_result = sentiment_service.analyze(data_result.news, news_confidence=news_confidence)
 
-    summary_text = getattr(sentiment_result, "top_keywords", None)
-    if not summary_text or isinstance(summary_text, list):
-        if isinstance(summary_text, list) and len(summary_text) > 0:
-            summary_text = f"주요 이슈 키워드({', '.join(summary_text[:3])})를 바탕으로 수급 흐름을 점검했습니다."
-        else:
-            summary_text = (
-                f"최근 수집된 {len(data_result.news)}건의 뉴스를 분석한 결과 "
-                f"{stock_name}의 긍정 비율은 {pos_pct}%, 부정 비율은 {neg_pct}%입니다."
+            # 3단계: Prophet 기반 7일 주가 예측
+            prediction_result = prediction_service.predict(
+                ticker, data_result.price, sentiment_result.sentiment
             )
 
-    response = StockAnalysisResponse(
-        ticker=data_result.ticker,
-        price=data_result.price,
-        price_history=getattr(data_result, "price_history", []),
-        volume_history=getattr(data_result, "volume_history", []),
-        institution_history=getattr(data_result, "institution_history", []),
-        foreign_history=getattr(data_result, "foreign_history", []),
-        individual_history=getattr(data_result, "individual_history", []),
-        investor_data=getattr(data_result, "investor_data", []),
-        financial=getattr(data_result, "financial", None),
-        realtime=getattr(data_result, "realtime", []),
-        news=data_result.news,
-        prediction=prediction_result.prediction,
-        sentiment=sentiment_result.sentiment,
-        warnings=warnings,
-        confidence_score=confidence_score,
-        confidence_breakdown=confidence_breakdown,  # [★추가] 정보/신호일치도/예측/시장 서브스코어
-        explanation=raw_explanation,   # 👈 contribution 보장된 근거 전달
-        trend=sentiment_result.trend,
-        calculation_note=getattr(sentiment_result, "calculation_note", None),
-        top_keywords=summary_text,     # 👈 종목별 유일 요약문 전달
-        volatility=sentiment_result.volatility,
-        volume_analysis=getattr(prediction_result, "volume_analysis", None),
-        news_agent_report=getattr(getattr(data_result, "news_uncertainty", None), "reasoning", None),
-        news_agent_confidence=getattr(getattr(data_result, "news_uncertainty", None), "confidence", None),
-        news_agent_epistemic=getattr(getattr(data_result, "news_uncertainty", None), "epistemic", None),
-        news_agent_aleatoric=getattr(getattr(data_result, "news_uncertainty", None), "aleatoric", None),
-        critic_report=llm_report,
-        flow_alpha=getattr(data_result, "flow_alpha", 0.0),
-        financial_alpha=getattr(data_result, "financial_alpha", 0.0),
-        momentum_alpha=getattr(data_result, "momentum_alpha", 0.0),
-        composite_alpha=round(
-            getattr(data_result, "flow_alpha", 0.0) * 0.30 +
-            getattr(data_result, "financial_alpha", 0.0) * 0.20 +
-            getattr(data_result, "momentum_alpha", 0.0) * 0.20,
+            # 4단계: Critic 모순 검증
+            # critic.review()는 4번째 값으로 confidence_breakdown(dict)도 반환.
+            # 프론트(ReliabilityCard.jsx)가 이 값을 그대로 표시하도록 응답에 실어줌.
+            warnings, confidence_score, llm_report, confidence_breakdown = critic.review(
+                data_result, sentiment_result, prediction_result
+            )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=str(e))
+
+        #yeonwoo_sentiment.py의 explanation 스키마(type/title/chips/url)에 맞춤.
+        pos_pct = int(sentiment_result.sentiment.positive * 100)
+        neg_pct = int(sentiment_result.sentiment.negative * 100)
+
+        raw_explanation = getattr(sentiment_result, "explanation", []) or []
+        if raw_explanation and hasattr(raw_explanation[0], "dict"):
+            raw_explanation = [item.dict() for item in raw_explanation]
+
+        if not raw_explanation:
+            # 실제 근거가 없으면 지어내지 않고 있는 그대로 알림
+            raw_explanation = [{
+                "type": "neutral",
+                "title": "이번 분석에서는 호재/악재를 구분할 만큼 뉴스 근거가 충분하지 않습니다.",
+                "chips": [],
+                "url": "#",
+            }]
+
+        summary_text = getattr(sentiment_result, "top_keywords", None)
+        if not summary_text or isinstance(summary_text, list):
+            if isinstance(summary_text, list) and len(summary_text) > 0:
+                summary_text = f"주요 이슈 키워드({', '.join(summary_text[:3])})를 바탕으로 수급 흐름을 점검했습니다."
+            else:
+                summary_text = (
+                    f"최근 수집된 {len(data_result.news)}건의 뉴스를 분석한 결과 "
+                    f"{stock_name}의 긍정 비율은 {pos_pct}%, 부정 비율은 {neg_pct}%입니다."
+                )
+
+        # ── ★[버그 수정] 감성 알파(변동성 보정 완료된 최종값) 추출 ──
+        # sentiment_service.analyze()가 SentimentResult.alpha.sentiment_alpha로
+        # 이미 정확히 계산해둔 값을 그대로 사용한다. 절대 sentiment.positive -
+        # sentiment.negative로 재계산하지 않는다 (그건 변동성 보정 전 원본값이라
+        # 프론트/리포트 간 값이 어긋나는 원인이었음).
+        sentiment_alpha_value = 0.0
+        if getattr(sentiment_result, "alpha", None) is not None:
+            sentiment_alpha_value = sentiment_result.alpha.sentiment_alpha
+
+        flow_alpha_value = getattr(data_result, "flow_alpha", 0.0)
+        financial_alpha_value = getattr(data_result, "financial_alpha", 0.0)
+        momentum_alpha_value = getattr(data_result, "momentum_alpha", 0.0)
+
+        # ── ★[버그 수정] composite_alpha 계산식에 sentiment_alpha(30%) 반영 ──
+        # 기존 버그: sentiment_alpha가 빠진 채 flow(30%)+financial(20%)+momentum(20%)
+        # = 가중치 합 0.70으로만 계산되고 있었음. 이제 4개 팩터 모두 반영해서
+        # 가중치 합이 1.0(감성30 + 수급30 + 재무20 + 모멘텀20)이 되도록 수정.
+        composite_alpha_value = round(
+            sentiment_alpha_value * 0.30 +
+            flow_alpha_value * 0.30 +
+            financial_alpha_value * 0.20 +
+            momentum_alpha_value * 0.20,
             3
-        ),
-    )
+        )
 
-    bad_fields = _find_bad_floats(response.model_dump())
-    if bad_fields:
-        print("🚨 잘못된 float 값(NaN/Inf) 발견:", bad_fields)
+        response = StockAnalysisResponse(
+            ticker=data_result.ticker,
+            price=data_result.price,
+            price_history=getattr(data_result, "price_history", []),
+            volume_history=getattr(data_result, "volume_history", []),
+            institution_history=getattr(data_result, "institution_history", []),
+            foreign_history=getattr(data_result, "foreign_history", []),
+            individual_history=getattr(data_result, "individual_history", []),
+            investor_data=getattr(data_result, "investor_data", []),
+            financial=getattr(data_result, "financial", None),
+            realtime=getattr(data_result, "realtime", []),
+            news=data_result.news,
+            prediction=prediction_result.prediction,
+            sentiment=sentiment_result.sentiment,
+            warnings=warnings,
+            confidence_score=confidence_score,
+            confidence_breakdown=confidence_breakdown,  # 정보/신호일치도/예측/시장 서브스코어
+            explanation=raw_explanation,   # 👈 contribution 보장된 근거 전달
+            trend=sentiment_result.trend,
+            calculation_note=getattr(sentiment_result, "calculation_note", None),
+            top_keywords=summary_text,     # 👈 종목별 유일 요약문 전달
+            volatility=sentiment_result.volatility,
+            volume_analysis=getattr(prediction_result, "volume_analysis", None),
+            news_agent_report=getattr(getattr(data_result, "news_uncertainty", None), "reasoning", None),
+            news_agent_confidence=getattr(getattr(data_result, "news_uncertainty", None), "confidence", None),
+            news_agent_epistemic=getattr(getattr(data_result, "news_uncertainty", None), "epistemic", None),
+            news_agent_aleatoric=getattr(getattr(data_result, "news_uncertainty", None), "aleatoric", None),
+            critic_report=llm_report,
+            sentiment_alpha=sentiment_alpha_value,   # ★ 신규 추가
+            flow_alpha=flow_alpha_value,
+            financial_alpha=financial_alpha_value,
+            momentum_alpha=momentum_alpha_value,
+            composite_alpha=composite_alpha_value,   # ★ 계산식 수정됨 (감성 30% 반영)
+        )
 
-    return response
+        bad_fields = _find_bad_floats(response.model_dump())
+        if bad_fields:
+            print("🚨 잘못된 float 값(NaN/Inf) 발견:", bad_fields)
+
+        # ── ★[버그 수정] 응답을 캐시에 저장 ──
+        _analyze_cache[ticker] = {"response": response, "ts": time.time()}
+        return response
 
 
 if __name__ == "__main__":

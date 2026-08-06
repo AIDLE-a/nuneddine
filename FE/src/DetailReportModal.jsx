@@ -1,9 +1,24 @@
 import React, { useState } from 'react';
 
+// ⚠️ [★버그 수정 2026-08-02]
+// 기존 버그: sentimentAlpha를 이 컴포넌트가 (sentiment.positive - sentiment.negative)로
+// 직접 재계산하고 있었음. 백엔드(연우님 감성 에이전트)는 이미 변동성까지 반영한
+// 최종 보정값을 alpha.sentiment_alpha로 계산해서 내려주는데, 이 컴포넌트만 그 값을
+// 쓰지 않고 원본값을 다시 만들어 쓰다 보니 "리포트 상단 요약"과 "AI Critic 본문"에
+// 서로 다른 감성 알파 숫자가 동시에 노출되는 버그가 있었다.
+// (예: 상단 요약 +0.326 vs 본문 +0.163 — 둘 다 실제로는 계산이 맞았지만, 하나는
+// 보정 전 원본, 하나는 보정 후 값이라 사용자 입장에선 모순처럼 보였음)
+//
+// 수정: main.py가 StockAnalysisResponse.sentiment_alpha 필드에 최종 보정값을 실어
+// 보내주므로, 이 컴포넌트는 그 값을 그대로 표시만 하고 재계산하지 않는다.
+// (schemas.py, main.py 쪽 수정과 함께 적용되어야 함)
+
 function DetailReportModal({ stock, analysis }) {
   const [show, setShow] = useState(false);
 
-  // critic_report 없어도 버튼 표시
+  // props 기본값 보장 (stock이나 analysis가 null/undefined일 경우 방어)
+  const safeStock = stock || { name: '알 수 없음', code: '-' };
+  const safeAnalysis = analysis || {};
 
   const now = new Date();
   const dateStr = now.toLocaleDateString('ko-KR', {
@@ -11,17 +26,24 @@ function DetailReportModal({ stock, analysis }) {
     hour: '2-digit', minute: '2-digit'
   });
 
-  const report = analysis?.critic_report || 'AI Critic 리포트를 생성 중이거나 데이터가 부족합니다.';
-  const confidence = analysis.confidence_score;
-  const finalPred = analysis.prediction?.length
-    ? analysis.prediction[analysis.prediction.length - 1]
+  const report = safeAnalysis.critic_report || 'AI Critic 리포트를 생성 중이거나 데이터가 부족합니다.';
+
+  // ✅ 옵셔널 체이닝(?.) 및 기본값 0 설정
+  const confidence = safeAnalysis.confidence_score ?? 0;
+
+  const finalPred = safeAnalysis.prediction?.length
+    ? safeAnalysis.prediction[safeAnalysis.prediction.length - 1]
     : null;
 
-  const flowAlpha = analysis.flow_alpha || 0;
-  const financialAlpha = analysis.financial_alpha || 0;
-  const momentumAlpha = analysis.momentum_alpha || 0;
-  const compositeAlpha = analysis.composite_alpha || 0;
-  const sentimentAlpha = (analysis.sentiment?.positive || 0.5) - (analysis.sentiment?.negative || 0.5);
+  const flowAlpha = safeAnalysis.flow_alpha || 0;
+  const financialAlpha = safeAnalysis.financial_alpha || 0;
+  const momentumAlpha = safeAnalysis.momentum_alpha || 0;
+  const compositeAlpha = safeAnalysis.composite_alpha || 0;
+
+  // ── ★[버그 수정] 서버가 계산한 최종(변동성 보정 완료) 값을 그대로 사용 ──
+  // 기존: const sentimentAlpha = (safeAnalysis.sentiment?.positive || 0.5) - (safeAnalysis.sentiment?.negative || 0.5);
+  // 위 방식은 백엔드의 변동성 보정을 무시하고 원본값을 재계산하는 버그였음.
+  const sentimentAlpha = safeAnalysis.sentiment_alpha ?? 0;
 
   const getConfColor = (score) =>
     score >= 70 ? '#10B981' : score >= 50 ? '#F59E0B' : '#EF4444';
@@ -77,10 +99,10 @@ function DetailReportModal({ stock, analysis }) {
   누네띠네 AI 주식 리서치 리포트
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-종목명: ${stock.name} (${stock.code})
+종목명: ${safeStock.name} (${safeStock.code})
 분석일시: ${dateStr}
-현재가: ${analysis.price?.toLocaleString()}원
-7일 예측가: ${finalPred ? finalPred.future_price.toLocaleString() + '원' : '-'}
+현재가: ${safeAnalysis.price?.toLocaleString() || '-'}원
+7일 예측가: ${finalPred ? finalPred.future_price?.toLocaleString() + '원' : '-'}
 신뢰구간: ${finalPred ? `${finalPred.lower?.toLocaleString()} ~ ${finalPred.upper?.toLocaleString()}원` : '-'}
 종합 신뢰도: ${confidence}/100
 ${alphaSection}
@@ -93,10 +115,10 @@ ${report}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   데이터 요약
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-감성: 긍정 ${Math.round(analysis.sentiment?.positive * 100)}% / 부정 ${Math.round(analysis.sentiment?.negative * 100)}%
-뉴스 신뢰도: ${Math.round((analysis.news_agent_confidence || 0) * 100)}%
-분석 뉴스: ${analysis.news?.length || 0}건
-경고: ${analysis.warnings?.join(' / ') || '없음'}
+감성: 긍정 ${Math.round((safeAnalysis.sentiment?.positive || 0) * 100)}% / 부정 ${Math.round((safeAnalysis.sentiment?.negative || 0) * 100)}%
+뉴스 신뢰도: ${Math.round((safeAnalysis.news_agent_confidence || 0) * 100)}%
+분석 뉴스: ${safeAnalysis.news?.length || 0}건
+경고: ${safeAnalysis.warnings?.join(' / ') || '없음'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ※ 이 리포트는 AI가 자동 생성한 투자 참고용 자료이며
@@ -108,7 +130,7 @@ ${report}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `누네띠네_${stock.name}_${now.toISOString().slice(0, 10)}.txt`;
+    a.download = `누네띠네_${safeStock.name}_${now.toISOString().slice(0, 10)}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -139,8 +161,8 @@ ${report}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <p style={{ margin: 0, fontSize: 10, color: '#64748b', letterSpacing: 3, textTransform: 'uppercase' }}>누네띠네 AI 리서치 리포트</p>
-                  <h2 style={{ margin: '6px 0 0', color: '#fff', fontSize: 22, fontWeight: 800 }}>{stock.name}</h2>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>{stock.code} · {dateStr}</p>
+                  <h2 style={{ margin: '6px 0 0', color: '#fff', fontSize: 22, fontWeight: 800 }}>{safeStock.name}</h2>
+                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>{safeStock.code} · {dateStr}</p>
                 </div>
                 <button onClick={() => setShow(false)} style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 16 }}>✕</button>
               </div>
@@ -148,8 +170,8 @@ ${report}
               {/* 핵심 지표 */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 20 }}>
                 {[
-                  { label: '현재가', value: `${analysis.price?.toLocaleString()}원`, color: '#fff' },
-                  { label: '7일 예측가', value: finalPred ? `${finalPred.future_price.toLocaleString()}원` : '-', color: '#F59E0B' },
+                  { label: '현재가', value: safeAnalysis.price ? `${safeAnalysis.price.toLocaleString()}원` : '-', color: '#fff' },
+                  { label: '7일 예측가', value: finalPred ? `${finalPred.future_price?.toLocaleString()}원` : '-', color: '#F59E0B' },
                   { label: '종합 신뢰도', value: `${confidence}/100`, color: getConfColor(confidence) },
                   { label: '종합 알파', value: `${compositeAlpha > 0 ? '+' : ''}${compositeAlpha.toFixed(3)}`, color: getAlphaColor(compositeAlpha) },
                 ].map((item, i) => (
@@ -218,11 +240,11 @@ ${report}
               <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, marginTop: 16, border: '1px solid #e2e8f0' }}>
                 <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 700, color: '#0f172a' }}>📋 데이터 요약</p>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: 12 }}>
-                  <div><span style={{ color: '#6b7280' }}>감성: </span><span style={{ fontWeight: 600 }}>긍정 {Math.round((analysis.sentiment?.positive || 0) * 100)}% / 부정 {Math.round((analysis.sentiment?.negative || 0) * 100)}%</span></div>
-                  <div><span style={{ color: '#6b7280' }}>뉴스 신뢰도: </span><span style={{ fontWeight: 600 }}>{Math.round((analysis.news_agent_confidence || 0) * 100)}%</span></div>
-                  <div><span style={{ color: '#6b7280' }}>분석 뉴스: </span><span style={{ fontWeight: 600 }}>{analysis.news?.length || 0}건</span></div>
+                  <div><span style={{ color: '#6b7280' }}>감성: </span><span style={{ fontWeight: 600 }}>긍정 {Math.round((safeAnalysis.sentiment?.positive || 0) * 100)}% / 부정 {Math.round((safeAnalysis.sentiment?.negative || 0) * 100)}%</span></div>
+                  <div><span style={{ color: '#6b7280' }}>뉴스 신뢰도: </span><span style={{ fontWeight: 600 }}>{Math.round((safeAnalysis.news_agent_confidence || 0) * 100)}%</span></div>
+                  <div><span style={{ color: '#6b7280' }}>분석 뉴스: </span><span style={{ fontWeight: 600 }}>{safeAnalysis.news?.length || 0}건</span></div>
                   <div><span style={{ color: '#6b7280' }}>예측 신뢰구간: </span><span style={{ fontWeight: 600 }}>{finalPred ? `${finalPred.lower?.toLocaleString()} ~ ${finalPred.upper?.toLocaleString()}원` : '-'}</span></div>
-                  <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#6b7280' }}>경고: </span><span style={{ fontWeight: 600, color: analysis.warnings?.length ? '#EF4444' : '#10B981' }}>{analysis.warnings?.join(' / ') || '없음'}</span></div>
+                  <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#6b7280' }}>경고: </span><span style={{ fontWeight: 600, color: safeAnalysis.warnings?.length ? '#EF4444' : '#10B981' }}>{safeAnalysis.warnings?.join(' / ') || '없음'}</span></div>
                 </div>
               </div>
 
