@@ -118,6 +118,7 @@ def _llm_critique(
 - 예측 경고: {prediction_result.prediction_warning or "없음"}
 
 [Critic 종합 신뢰도]: {confidence_score}/100
+[Bayesian 감성 불확실성]: {bayesian_unc:.4f} ({"낮음 ✅" if bayesian_unc < 0.02 else "보통 ⚠️" if bayesian_unc < 0.05 else "높음 ❌"})
 [경고 목록]: {", ".join(warnings) if warnings else "없음"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

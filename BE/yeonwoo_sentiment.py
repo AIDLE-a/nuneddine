@@ -351,7 +351,24 @@ def analyze(news: list, news_confidence: float = 1.0) -> SentimentResult:
     warnings = _check_uncertainty(news, sentiment, scored)
     trend = _calc_trend(scored)
     volatility = _calc_volatility(scored)
-    alpha = _calc_sentiment_alpha(sentiment, scored, volatility or 0)
+
+    # MC Dropout Bayesian 불확실성 계산 (alpha 계산 전에 실행)
+    bayesian_uncertainty = 0.0
+    try:
+        if scored and pipe:
+            # 감성 강도가 가장 높은 기사로 MC Dropout
+            for s in scored:
+                s["signal_strength"] = s["combined_weight"] * abs(s["score"] - 0.5) * 2
+            best_for_mc = max(scored, key=lambda s: s["signal_strength"])
+            mc_result = _mc_dropout_uncertainty(best_for_mc["text"], pipe, n_samples=10)
+            bayesian_uncertainty = mc_result["uncertainty"]
+            print(f"🧠 Bayesian 불확실성 (MC Dropout): {bayesian_uncertainty:.4f}")
+            if bayesian_uncertainty > 0.05:
+                warnings.append(f"Bayesian 불확실성 높음 ({bayesian_uncertainty:.3f})")
+    except Exception as e:
+        print(f"⚠️ MC Dropout 실패: {e}")
+
+    alpha = _calc_sentiment_alpha(sentiment, scored, volatility or 0, bayesian_uncertainty)
 
     has_llm_result = bool(
         llm_analysis and (llm_analysis.get("positive_items") or llm_analysis.get("negative_items"))
@@ -524,10 +541,12 @@ def _check_uncertainty(news: list, sentiment: Sentiment, scored: list[dict]) -> 
     return warnings
 
 
-def _calc_sentiment_alpha(sentiment: Sentiment, scored: list[dict], volatility: float) -> AlphaFactor:
+def _calc_sentiment_alpha(sentiment: Sentiment, scored: list[dict], volatility: float, bayesian_uncertainty: float = 0.0) -> AlphaFactor:
     sentiment_alpha = round(sentiment.positive - sentiment.negative, 3)
     vol_penalty = min(volatility * 2, 0.5) if volatility else 0
-    adjusted_alpha = sentiment_alpha * (1 - vol_penalty)
+    # Bayesian 불확실성 패널티 (MC Dropout 기반)
+    bayesian_penalty = min(bayesian_uncertainty * 2, 0.4)
+    adjusted_alpha = sentiment_alpha * (1 - vol_penalty) * (1 - bayesian_penalty)
     abs_alpha = abs(adjusted_alpha)
 
     if abs_alpha >= 0.4:
@@ -729,6 +748,76 @@ def _llm_sentiment_analysis(news_list: list, sentiment: Sentiment) -> dict:
             print(f"⚠️ JSON 복구도 실패: {e2}")
         return {}
 
+
+
+def _mc_dropout_uncertainty(text: str, pipe, n_samples: int = 10) -> dict:
+    """
+    MC Dropout으로 Bayesian 불확실성 계산
+    논문: Gal & Ghahramani (2016) "Dropout as a Bayesian Approximation"
+    
+    Dropout을 테스트 시에도 활성화한 채로 N번 예측
+    → 예측값의 분산 = Epistemic 불확실성
+    """
+    import torch
+    import numpy as np
+
+    model = pipe.model
+    tokenizer = pipe.tokenizer
+
+    # 학습 모드로 전환 (Dropout 활성화)
+    model.train()
+
+    pos_scores = []
+    neg_scores = []
+
+    try:
+        inputs = tokenizer(
+            text[:512],
+            return_tensors="pt",
+            truncation=True,
+            max_length=512,
+            padding=True,
+        )
+
+        with torch.no_grad():
+            for _ in range(n_samples):
+                outputs = model(**inputs)
+                probs = torch.softmax(outputs.logits, dim=-1)[0]
+                probs_np = probs.detach().cpu().numpy()
+
+                # 레이블 매핑
+                id2label = model.config.id2label
+                for idx, prob in enumerate(probs_np):
+                    label = id2label.get(idx, "").lower()
+                    if "pos" in label:
+                        pos_scores.append(float(prob))
+                    elif "neg" in label:
+                        neg_scores.append(float(prob))
+
+        pos_scores = np.array(pos_scores)
+        neg_scores = np.array(neg_scores)
+
+        # 평균 (예측값)
+        pos_mean = float(np.mean(pos_scores)) if len(pos_scores) > 0 else 0.5
+        neg_mean = float(np.mean(neg_scores)) if len(neg_scores) > 0 else 0.5
+
+        # 표준편차 (불확실성)
+        pos_std = float(np.std(pos_scores)) if len(pos_scores) > 0 else 0.0
+        neg_std = float(np.std(neg_scores)) if len(neg_scores) > 0 else 0.0
+
+        # 종합 불확실성 (높을수록 불확실)
+        uncertainty = float((pos_std + neg_std) / 2)
+
+        return {
+            "positive": pos_mean,
+            "negative": neg_mean,
+            "uncertainty": uncertainty,
+            "std": pos_std,
+            "n_samples": n_samples,
+        }
+    finally:
+        # 반드시 평가 모드로 복원
+        model.eval()
 
 def _get_mock_sentiment() -> SentimentResult:
     return SentimentResult(

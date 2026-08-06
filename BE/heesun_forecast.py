@@ -161,7 +161,11 @@ def _adjust_with_analyst_target(
         confidence_score=prediction.confidence_score,
     )
 
-def _adjust_with_sentiment(prediction: Prediction, sentiment: Sentiment) -> Prediction:
+def _adjust_with_sentiment(
+    prediction: Prediction,
+    sentiment: Sentiment,
+    bayesian_uncertainty: float = 0.0
+) -> Prediction:
     """감성 점수(Positive - Negative)로 7일간 주가 예측치 보정"""
     sentiment_score = sentiment.positive - sentiment.negative
     adjustment = 1 + (sentiment_score * SENTIMENT_ADJUSTMENT_WEIGHT)
