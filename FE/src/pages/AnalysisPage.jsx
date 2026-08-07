@@ -11,6 +11,7 @@ import SentimentCard from '../SentimentCard.jsx';
 import RecentNewsCard from '../RecentNewsCard.jsx';
 import AiReportCard from '../AiReportCard.jsx';
 import WatchlistPanel from '../WatchlistPanel.jsx';
+import MarketOverviewPanel from '../MarketOverviewPanel.jsx';
 import NotificationBell from '../components/NotificationBell.jsx';
 
 function AnalysisPage({
@@ -249,6 +250,8 @@ function AnalysisPage({
         <StockChartCard stock={selectedStock} analysis={analysis} />
         <ReliabilityCard stock={selectedStock} analysis={analysis} isLoading={isLoading} />
       </div>
+
+      <MarketOverviewPanel onAnalyze={onAnalyze} />
 
       <div className="sub-content-grid">
         <SentimentCard stock={selectedStock} analysis={analysis} isLoading={isLoading} />

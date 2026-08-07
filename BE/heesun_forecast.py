@@ -5,6 +5,27 @@
 2. Prophet + Volume Regressor (거래량 반영 시계열 예측)
 3. 2단계 감성 점수(Sentiment) 결합 휴리스틱 보정
 4. 일자별 예측 불확실성(Uncertainty Score) & 거래량 분석 생성
+
+⚠️ [★버그 수정 2026-08-02] 캐시 계층 설계 노트:
+   - 이 파일의 _run_prophet() 캐시(1시간, 아래 _cache 변수)는 "Prophet 원본
+     예측"만 캐싱한다. 감성/시장지수/증권사 목표주가 보정(_adjust_with_*)은
+     predict() 호출마다 항상 새로 계산된다.
+   - 예전에는 main.py의 /api/analyze에 응답 캐싱이 없어서, 이 predict()가
+     호출될 때마다 sentiment/market_index 등 입력값이 미세하게 달라지고,
+     그 결과 같은 날짜(day)의 예측가·신뢰구간이 화면마다(대시보드 vs 상세
+     리포트) 어긋나 보이는 버그가 있었다.
+   - 지금은 main.py의 /api/analyze에 10분 TTL의 응답 레벨 캐싱이 추가되어,
+     이 predict() 함수 자체는 같은 10분 창 안에서 한 번만 호출된다. 그래서
+     이 파일 내부에서 감성/시장 보정까지 이중으로 캐싱할 필요는 없다.
+   - 즉 캐시 계층은 의도적으로 이렇게 나뉜다:
+       · Prophet 원본(_cache, 이 파일): 1시간 — 기본 추세는 자주 안 바뀌고
+         재학습 비용이 크므로 길게 유지
+       · /api/analyze 전체 응답(main.py의 _analyze_cache): 10분 — 감성/시장
+         지표는 더 자주 갱신되는 게 합리적이므로 짧게 유지
+   - 두 TTL이 다른 것은 버그가 아니라 의도된 설계입니다. 값을 일치시키지
+     마세요. 만약 이 predict() 함수를 /api/analyze 캐싱 없이 단독으로
+     호출하는 다른 코드 경로가 생긴다면, 그때는 이 함수 안에서도 최종
+     보정 결과 전체를 캐싱하도록 다시 변경해야 합니다.
 """
 
 import os
@@ -22,7 +43,7 @@ USE_MOCK = os.getenv("USE_MOCK_DATA", "true").lower() == "true"
 SENTIMENT_ADJUSTMENT_WEIGHT = 0.02
 FORECAST_DAYS = 7
 
-# 종목별 Prophet 결과 캐시 (1시간 유효)
+# 종목별 Prophet 원본 예측 결과 캐시 (1시간 유효) — 감성/시장 보정 전 값만 캐싱됨
 _cache: dict = {}
 _CACHE_TTL = 3600
 
@@ -31,8 +52,21 @@ _CACHE_TTL = 3600
 # 1. 메인 인터페이스 (오케스트레이터 호출용)
 # ==========================================
 
-def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult:
-    """오케스트레이터가 호출하는 최상위 예측 함수"""
+def predict(
+    ticker: str,
+    price: float,
+    sentiment: Sentiment,
+    market_index: dict = None,
+    target_mean_price: float = None,
+) -> PredictionResult:
+    """
+    오케스트레이터(main.py의 /api/analyze)가 호출하는 최상위 예측 함수.
+
+    ⚠️ 이 함수는 /api/analyze의 10분 응답 캐시 안에서만 호출된다는 전제로
+    설계되어 있음. 만약 이 함수를 캐싱 없이 반복 호출하는 새 경로가 생긴다면,
+    감성/시장/목표주가 보정 결과가 호출마다 달라질 수 있으니 별도 캐싱을
+    추가해야 한다 (파일 상단 주석 참고).
+    """
     if USE_MOCK:
         base = _get_mock_prediction(price)
         volume_history = [1200000, 1500000, 900000, 1100000, 1300000, 2100000, 1800000]
@@ -43,7 +77,24 @@ def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult
         volume_analysis = _analyze_volume(volume_history)
 
     # 2단계 감성 분석 결과(Sentiment)로 예측치 보정
-    adjusted = [_adjust_with_sentiment(day, sentiment) for day in base]
+    sentiment_obj = sentiment.sentiment if hasattr(sentiment, "sentiment") else sentiment
+    bayesian_unc = getattr(sentiment, "bayesian_uncertainty", 0.0) or 0.0
+    adjusted = [_adjust_with_sentiment(day, sentiment_obj, bayesian_unc) for day in base]
+
+    # 코스피/코스닥 시장 트렌드 보정
+    if market_index:
+        adjusted = [_adjust_with_market(day, market_index, ticker) for day in adjusted]
+        if ticker.endswith(".KQ"):
+            print(f"📈 코스닥 보정 적용: {market_index.get('kosdaq', {}).get('trend', '-')}")
+        else:
+            print(f"📈 코스피 보정 적용: {market_index.get('kospi', {}).get('trend', '-')}")
+
+    # 증권사 목표주가 보정
+    if target_mean_price and price:
+        adjusted = [_adjust_with_analyst_target(day, price, target_mean_price) for day in adjusted]
+        upside = (target_mean_price - price) / price * 100
+        print(f"🎯 증권사 목표주가 보정 적용: 업사이드 {upside:.1f}%")
+
     prediction_warning = _check_prediction_uncertainty(adjusted)
 
     return PredictionResult(
@@ -59,7 +110,11 @@ def predict(ticker: str, price: float, sentiment: Sentiment) -> PredictionResult
 # ==========================================
 
 def _run_prophet(ticker: str, price: float) -> list[Prediction]:
-    """캐시 적용 및 Prophet 모델 연동"""
+    """
+    캐시 적용 및 Prophet 모델 연동.
+    ⚠️ 이 캐시는 "Prophet 원본 예측"만 담는다. 감성/시장/목표주가 보정은
+    여기 포함되지 않고 predict()에서 매번 별도로 적용된다 (파일 상단 주석 참고).
+    """
     cached = _cache.get(ticker)
     if cached and time.time() - cached["ts"] < _CACHE_TTL:
         print(f"⚡ [{ticker}] Prophet 예측 캐시 사용")
@@ -85,7 +140,66 @@ def _run_prophet(ticker: str, price: float) -> list[Prediction]:
     return predictions
 
 
-def _adjust_with_sentiment(prediction: Prediction, sentiment: Sentiment) -> Prediction:
+
+def _adjust_with_market(prediction: Prediction, market_index: dict, ticker: str = "") -> Prediction:
+    """
+    코스피/코스닥 시장 트렌드로 예측치 보정
+    - 코스피 종목(.KS): 코스피 지수 반영
+    - 코스닥 종목(.KQ): 코스닥 지수 반영
+    """
+    # 종목에 맞는 지수 선택
+    if ticker.endswith(".KQ"):
+        index = market_index.get("kosdaq", {})
+        index_name = "코스닥"
+    else:
+        index = market_index.get("kospi", {})
+        index_name = "코스피"
+
+    change_5d = index.get("change_5d", 0)
+
+    # 5일 시장 변화율의 30%만 반영 (과도한 보정 방지)
+    market_adjustment = 1 + (change_5d * 0.3)
+    market_adjustment = max(0.98, min(1.02, market_adjustment))  # ±2% 제한
+
+    return Prediction(
+        day=prediction.day,
+        future_price=round(prediction.future_price * market_adjustment, 1),
+        lower=round(prediction.lower * market_adjustment, 1),
+        upper=round(prediction.upper * market_adjustment, 1),
+        confidence_score=prediction.confidence_score,
+    )
+
+
+def _adjust_with_analyst_target(
+    prediction: Prediction,
+    current_price: float,
+    target_mean_price: float,
+) -> Prediction:
+    """
+    증권사 평균 목표주가로 예측치 보정
+    목표주가 방향으로 약하게 수렴하는 보정
+    """
+    if current_price <= 0 or target_mean_price <= 0:
+        return prediction
+
+    upside = (target_mean_price - current_price) / current_price
+    # 단기(7일) 예측이므로 목표주가의 3%만 반영
+    analyst_adjustment = 1 + (upside * 0.03)
+    analyst_adjustment = max(0.99, min(1.01, analyst_adjustment))  # ±1% 제한
+
+    return Prediction(
+        day=prediction.day,
+        future_price=round(prediction.future_price * analyst_adjustment, 1),
+        lower=round(prediction.lower * analyst_adjustment, 1),
+        upper=round(prediction.upper * analyst_adjustment, 1),
+        confidence_score=prediction.confidence_score,
+    )
+
+def _adjust_with_sentiment(
+    prediction: Prediction,
+    sentiment: Sentiment,
+    bayesian_uncertainty: float = 0.0
+) -> Prediction:
     """감성 점수(Positive - Negative)로 7일간 주가 예측치 보정"""
     sentiment_score = sentiment.positive - sentiment.negative
     adjustment = 1 + (sentiment_score * SENTIMENT_ADJUSTMENT_WEIGHT)
@@ -213,9 +327,40 @@ def run_prophet_forecast(df: pd.DataFrame, forecast_days: int = 7) -> pd.DataFra
         daily_seasonality=False,
         weekly_seasonality=True,
         yearly_seasonality=True,
-        interval_width=0.80,
-        changepoint_prior_scale=0.05
+        interval_width=0.85,          # 신뢰구간 85%로 확대 (보수적)
+        changepoint_prior_scale=0.03, # 변동점 민감도 낮춤 (과적합 방지)
+        seasonality_prior_scale=10,   # 계절성 강도
+        holidays_prior_scale=10,      # 공휴일 효과
     )
+
+    # 한국 공휴일 추가
+    try:
+        import pandas as pd
+        kr_holidays = pd.DataFrame({
+            "holiday": "kr_holiday",
+            "ds": pd.to_datetime([
+                "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30",
+                "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06",
+                "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06",
+                "2025-10-07", "2025-10-08", "2025-10-09", "2025-12-25",
+                "2026-01-01", "2026-01-28", "2026-01-29", "2026-01-30",
+                "2026-03-01", "2026-05-05", "2026-06-06", "2026-08-15",
+            ]),
+            "lower_window": 0,
+            "upper_window": 1,
+        })
+        model = Prophet(
+            daily_seasonality=False,
+            weekly_seasonality=True,
+            yearly_seasonality=True,
+            interval_width=0.85,
+            changepoint_prior_scale=0.03,
+            seasonality_prior_scale=10,
+            holidays_prior_scale=10,
+            holidays=kr_holidays,
+        )
+    except:
+        pass
     
     # 거래량을 외생 변수로 등록
     model.add_regressor("Volume")
@@ -259,10 +404,14 @@ def calculate_daily_uncertainty(
 
         # 구간이 좁을수록 높은 점수
         interval_score = max(0, (1 - interval_ratio / 0.30)) * 100
-        recency_penalty = 1 - ((day_num - 1) * 0.03)
+        recency_penalty = 1 - ((day_num - 1) * 0.04)  # 날짜 멀수록 더 많이 패널티
         adj_vol_score = volatility_score * recency_penalty
 
-        final_score = int(interval_score * 0.70 + adj_vol_score * 0.30)
+        # 가격 방향성 점수 추가
+        price_direction = row["yhat"] - current_price
+        direction_score = min(10, abs(price_direction / current_price) * 100)
+
+        final_score = int(interval_score * 0.60 + adj_vol_score * 0.30 + direction_score * 0.10)
         final_score = max(10, min(99, final_score))  # 10~99점 제약
 
         daily_results.append({
@@ -279,7 +428,7 @@ def calculate_daily_uncertainty(
 
 def run_forecast_pipeline(ticker: str, forecast_days: int = 7) -> dict:
     """전체 Prophet 파이프라인 처리"""
-    df = fetch_price_data(ticker, period_days=365)
+    df = fetch_price_data(ticker, period_days=365)  # 1년 데이터
     current_price = float(df["y"].iloc[-1])
     
     forecast = run_prophet_forecast(df, forecast_days=forecast_days)
@@ -295,6 +444,47 @@ def run_forecast_pipeline(ticker: str, forecast_days: int = 7) -> dict:
 # ==========================================
 # 5. 셀프 테스트 실행
 # ==========================================
+
+
+def predict_until_date(ticker: str, target_date: str) -> dict:
+    """
+    특정 날짜까지 예측
+    target_date: YYYY-MM-DD 형식
+    """
+    try:
+        from datetime import datetime
+        target = datetime.strptime(target_date, "%Y-%m-%d")
+        today = datetime.now()
+        days_diff = (target - today).days
+
+        if days_diff < 0:
+            return {"error": "과거 날짜는 예측할 수 없어요. 오늘 이후 날짜를 선택해주세요."}
+        if days_diff > 365:
+            return {"error": "1년 이내의 날짜만 예측 가능해요."}
+
+        # Prophet 예측 실행
+        df = fetch_price_data(ticker, period_days=365)
+        current_price = float(df["y"].iloc[-1])
+        forecast = run_prophet_forecast(df, forecast_days=days_diff)
+
+        # 해당 날짜 예측값 추출
+        future_df = forecast.tail(max(days_diff, 1)).reset_index(drop=True)
+        if future_df.empty:
+            return {"error": "예측 데이터가 없습니다."}
+        target_row = future_df.iloc[-1]
+
+        return {
+            "ticker": ticker,
+            "target_date": target_date,
+            "days_ahead": days_diff,
+            "current_price": current_price,
+            "predicted_price": round(float(target_row["yhat"]), 1),
+            "lower": round(float(target_row["yhat_lower"]), 1),
+            "upper": round(float(target_row["yhat_upper"]), 1),
+            "change_pct": round((float(target_row["yhat"]) - current_price) / current_price * 100, 2),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 if __name__ == "__main__":
     test_ticker = "005930.KS"  # 삼성전자
