@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MOCK_STOCKS } from './App.jsx';
 
 function makeStockObj(ticker, name) {
@@ -40,11 +40,12 @@ function WatchlistPanel({ favorites, history, recommendations, onSelectStock, on
     }
   };
 
+  useEffect(() => {
+    fetchEvaluation();
+  }, []);
+
   const handleOpenEvalModal = () => {
     setShowEvalModal(true);
-    if (!evalData) {
-      fetchEvaluation();
-    }
   };
 
   // 섹터별 그룹핑

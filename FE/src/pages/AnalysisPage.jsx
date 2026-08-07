@@ -198,7 +198,10 @@ function AnalysisPage({
               </div>
               <div className="dropdown-list">
                 {displayList.length > 0 ? displayList.map((r, i) => {
-                  const price = showPopular ? popularPrices[r.ticker] : null;
+                  const priceRaw = showPopular ? popularPrices[r.ticker] : null;
+                  const price = priceRaw != null && typeof priceRaw === 'object'
+                    ? (priceRaw.price ?? priceRaw.current_price ?? priceRaw.close ?? null)
+                    : priceRaw;
                   const currency = getStockCurrency({ code: r.ticker, exchange: r.exchange });
                   const priceStr = price != null ? formatPrice(price, currency) : null;
                   return (
