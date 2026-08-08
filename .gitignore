@@ -219,10 +219,26 @@ __marimo__/
 .streamlit/secrets.toml
 =======
 # ==========================================
+# 환경 변수 및 보안 파일 (절대 유출 금지)
+# ==========================================
+.env
+.env.*
+!.env.example
+*.json
+!package.json
+!package-lock.json
+BE/firebase_config.json
+BE/.env
+FE/.env
+FE/.env.local
+FE/.env.*.local
+
+# ==========================================
 # Python / 백엔드
 # ==========================================
 __pycache__/
 *.py[cod]
+*$py.class
 *.so
 *.egg
 *.egg-info/
@@ -231,15 +247,10 @@ dist/
 build/
 .venv/
 venv/
+ENV/
 env/
-.env
-.envrc
 
-# 설정 파일 (민감 정보)
-BE/firebase_config.json
-BE/.env
-
-# 테스트 / 캐시
+# 테스트 및 캐시
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -253,12 +264,10 @@ htmlcov/
 # ==========================================
 # Node / 프론트엔드
 # ==========================================
+node_modules/
 FE/node_modules/
 FE/dist/
 FE/dist-ssr/
-FE/.env
-FE/.env.local
-FE/.env.*.local
 
 # ==========================================
 # IDE / OS
@@ -271,8 +280,7 @@ FE/.env.*.local
 *.suo
 *.sw?
 Thumbs.db
-
-# Claude Code 설정 파일
+tempCodeRunnerFile.py
 .claude/
 <<<<<<< HEAD
 >>>>>>> origin/FE_CHAEMIN
