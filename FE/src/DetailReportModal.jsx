@@ -46,10 +46,10 @@ function DetailReportModal({ stock, analysis }) {
 
 
   const getConfColor = (score) =>
-    score >= 70 ? '#10B981' : score >= 50 ? '#F59E0B' : '#EF4444';
+    score >= 70 ? 'var(--positive)' : score >= 50 ? '#F59E0B' : 'var(--negative)';
 
   const getAlphaColor = (val) =>
-    val > 0.2 ? '#10B981' : val < -0.2 ? '#EF4444' : '#F59E0B';
+    val > 0.2 ? 'var(--positive)' : val < -0.2 ? 'var(--negative)' : '#F59E0B';
 
   const getSignal = (val) =>
     val > 0.4 ? '강한매수' : val > 0.2 ? '매수' : val < -0.4 ? '강한매도' : val < -0.2 ? '매도' : '중립';
@@ -60,9 +60,9 @@ function DetailReportModal({ stock, analysis }) {
     return (
       <div style={{ marginBottom: 12 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 12, color: '#374151', fontWeight: 500 }}>{label}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500 }}>{label}</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, color: '#6b7280' }}>{desc}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{desc}</span>
             <span style={{ fontSize: 13, fontWeight: 700, color }}>{value > 0 ? '+' : ''}{value.toFixed(3)}</span>
           </div>
         </div>
@@ -96,7 +96,7 @@ function DetailReportModal({ stock, analysis }) {
 
     const content = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  누네띠네 AI 주식 리서치 리포트
+  누네띄네 AI 주식 리서치 리포트
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 종목명: ${safeStock.name} (${safeStock.code})
@@ -136,143 +136,175 @@ ${report}
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `누네띠네_${safeStock.name}_${now.toISOString().slice(0, 10)}.txt`;
+    a.download = `누네띄네_${safeStock.name}_${now.toISOString().slice(0, 10)}.txt`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const sections = report.split(/(?=📰|📊|💡|🔮|⚡|⚠️)/).filter(s => s.trim());
+  const renderReport = (text) => {
+    const lines = text.split('\n');
+    const result = [];
+    lines.forEach((line, i) => {
+      const stripped = line.replace(/\*\*(.*?)\*\*/g, '$1').trimEnd();
+      const trimmed = stripped.trim();
+
+      // Standalone heading line ending with : (e.g. "요약:")
+      if (/^[^:：]{1,20}[：:]$/.test(trimmed)) {
+        result.push(
+          <strong key={`h${i}`} style={{ display: 'block', color: 'var(--text-primary)', marginTop: result.length > 0 ? 10 : 0, fontSize: 12 }}>
+            {trimmed}
+          </strong>
+        );
+        return;
+      }
+
+      // Inline heading: "제목: content" → split heading + content
+      const inlineHeading = trimmed.match(/^([^:：\n]{1,15}[：:])\s+(.+)$/);
+      if (inlineHeading) {
+        result.push(
+          <span key={`ih${i}`}>
+            <strong style={{ display: 'block', color: 'var(--text-primary)', marginTop: result.length > 0 ? 10 : 0, fontSize: 12 }}>
+              {inlineHeading[1]}
+            </strong>
+            <span style={{ display: 'block', lineHeight: 1.7 }}>{inlineHeading[2]}</span>
+          </span>
+        );
+        return;
+      }
+
+      // Regular line
+      const parts = stripped.split(/\*\*(.*?)\*\*/g);
+      result.push(
+        <span key={i} style={{ display: 'block', lineHeight: 1.7 }}>
+          {parts.map((p, j) => j % 2 === 1 ? <strong key={j}>{p}</strong> : p)}
+        </span>
+      );
+    });
+    return result;
+  };
+
+  const SECTION_EMOJI_RE = /^(📰|📊|💡|🔮|⚡|⚠️)\s*/u;
+  const SECTION_META = {
+    '📰': { label: '뉴스 분석', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2z"/><path d="M16 2v4M8 2v4M3 10h18"/></svg> },
+    '📊': { label: '퀀트 분석', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+    '💡': { label: '인사이트', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> },
+    '🔮': { label: '예측 분석', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg> },
+    '⚡': { label: '모멘텀', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> },
+    '⚠️': { label: '경고', icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> },
+  };
+  const rawSections = report.split(/(?=📰|📊|💡|🔮|⚡|⚠️)/).filter(s => s.trim());
+  const sections = rawSections.map(s => {
+    const m = s.match(SECTION_EMOJI_RE);
+    const meta = m ? SECTION_META[m[1]] : null;
+    return { label: meta?.label || null, icon: meta?.icon || null, text: s.replace(SECTION_EMOJI_RE, '').trim() };
+  });
 
   return (
     <>
-      <button
-        onClick={() => setShow(true)}
-        style={{
-          fontSize: 12, padding: '4px 12px', borderRadius: 20,
-          border: 'none', background: '#10B981',
-          color: '#fff', cursor: 'pointer', fontWeight: 600
-        }}
-      >
-        상세 리포트 ↗
+      <button onClick={() => setShow(true)} className="btn-secondary" style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+        상세 리포트
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
       </button>
 
       {show && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={() => setShow(false)}>
-          <div style={{ background: '#ffffff', borderRadius: 16, padding: 0, width: '90%', maxWidth: 760, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}
-            onClick={e => e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => setShow(false)}>
+          <div className="modal-box" style={{ maxWidth: 600 }} onClick={e => e.stopPropagation()}>
 
             {/* 헤더 */}
-            <div style={{ background: 'linear-gradient(135deg, #0f172a, #1e293b)', padding: '24px 28px', borderRadius: '16px 16px 0 0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <p style={{ margin: 0, fontSize: 10, color: '#64748b', letterSpacing: 3, textTransform: 'uppercase' }}>누네띠네 AI 리서치 리포트</p>
-                  <h2 style={{ margin: '6px 0 0', color: '#fff', fontSize: 22, fontWeight: 800 }}>{safeStock.name}</h2>
-                  <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>{safeStock.code} · {dateStr}</p>
+            <div className="modal-header">
+              <h3>{safeStock.name} 상세 리포트</h3>
+              <button onClick={() => setShow(false)} className="modal-close">✕</button>
+            </div>
+
+            {/* 핵심 지표 */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 16 }}>
+              {[
+                { label: '현재가', value: safeAnalysis.price ? `${safeAnalysis.price.toLocaleString()}원` : '-', color: 'var(--text-primary)' },
+                { label: '종합 신뢰도', value: `${confidence}/100`, color: getConfColor(confidence) },
+                { label: '종합 알파', value: `${compositeAlpha > 0 ? '+' : ''}${compositeAlpha.toFixed(3)}`, color: getAlphaColor(compositeAlpha) },
+              ].map((item, i) => (
+                <div key={i} className="modal-section" style={{ margin: 0, textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{item.label}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: item.color }}>{item.value}</div>
                 </div>
-                <button onClick={() => setShow(false)} style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', color: '#fff', fontSize: 16 }}>✕</button>
-              </div>
+              ))}
+            </div>
 
-              {/* 핵심 지표 */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginTop: 20 }}>
-                {[
-                  { label: '현재가', value: safeAnalysis.price ? `${safeAnalysis.price.toLocaleString()}원` : '-', color: '#fff' },
-                  { label: '7일 예측가', value: finalPred ? `${finalPred.future_price?.toLocaleString()}원` : '-', color: '#F59E0B' },
-                  { label: '현재가', value: `${analysis?.price?.toLocaleString()}원`, color: '#fff' },
-                  { label: '7일 예측가', value: finalPred ? `${finalPred.future_price.toLocaleString()}원` : '-', color: '#F59E0B' },
-                  { label: '종합 신뢰도', value: `${confidence}/100`, color: getConfColor(confidence) },
-                  { label: '종합 알파', value: `${compositeAlpha > 0 ? '+' : ''}${compositeAlpha.toFixed(3)}`, color: getAlphaColor(compositeAlpha) },
-                ].map((item, i) => (
-                  <div key={i} style={{ background: 'rgba(255,255,255,0.07)', borderRadius: 10, padding: '12px 14px' }}>
-                    <p style={{ margin: 0, fontSize: 10, color: '#64748b' }}>{item.label}</p>
-                    <p style={{ margin: '4px 0 0', fontSize: 16, fontWeight: 700, color: item.color }}>{item.value}</p>
-                  </div>
-                ))}
-              </div>
-
-              {/* 알파 신호 */}
-              <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 11, color: '#64748b' }}>종합 투자 신호:</span>
-                <span style={{
-                  fontSize: 13, fontWeight: 700, padding: '3px 12px', borderRadius: 20,
-                  background: getAlphaColor(compositeAlpha) + '30',
-                  color: getAlphaColor(compositeAlpha),
-                  border: `1px solid ${getAlphaColor(compositeAlpha)}50`
-                }}>
-                  {getSignal(compositeAlpha)}
-                </span>
-                <span style={{ fontSize: 11, color: '#475569' }}>
-                  (감성 30% + 수급 30% + 재무 20% + 모멘텀 20%)
-                </span>
-              </div>
+            {/* 알파 신호 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>종합 투자 신호:</span>
+              <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: getAlphaColor(compositeAlpha) + '22', color: getAlphaColor(compositeAlpha), border: `1px solid ${getAlphaColor(compositeAlpha)}44` }}>
+                {getSignal(compositeAlpha)}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>(감성 30% + 수급 30% + 재무 20% + 모멘텀 20%)</span>
             </div>
 
             {/* 본문 */}
-            <div style={{ padding: '24px 28px' }}>
+            <div className="modal-body">
 
-              {/* 알파 팩터 시각화 */}
-              <div style={{ background: '#f8fafc', borderRadius: 12, padding: 18, marginBottom: 20, border: '1px solid #e2e8f0' }}>
-                <p style={{ margin: '0 0 16px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>📐 퀀트 알파 팩터 분석</p>
+              {/* 알파 팩터 */}
+              <div className="modal-section">
+                <p className="modal-section-title">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                  퀀트 알파 팩터 분석
+                </p>
                 <AlphaBar label="감성 알파" value={sentimentAlpha} desc="뉴스 긍정/부정 신호" />
                 <AlphaBar label="수급 알파" value={flowAlpha} desc="외국인/기관 매수 강도" />
                 <AlphaBar label="재무 알파" value={financialAlpha} desc="ROE/성장률/안정성" />
                 <AlphaBar label="모멘텀 알파" value={momentumAlpha} desc="5일/20일 가격 추세" />
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #e2e8f0' }}>
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)' }}>
                   <AlphaBar label="종합 알파" value={compositeAlpha} desc="가중 평균 종합 신호" />
                 </div>
               </div>
 
               {/* AI Critic 리포트 */}
-              <p style={{ margin: '0 0 14px', fontSize: 14, fontWeight: 700, color: '#0f172a' }}>🤖 AI Critic 종합 분석</p>
-              {sections.length > 0 ? (
+              <p className="modal-section-title" style={{ marginBottom: 12 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6M9 12h6M9 15h4"/></svg>
+                AI Critic 종합 분석
+              </p>
+              {rawSections.length > 0 ? (
                 sections.map((section, i) => (
-                  <div key={i} style={{
-                    marginBottom: 16,
-                    padding: 16,
-                    borderRadius: 10,
-                    background: i % 2 === 0 ? '#f8fafc' : '#fff',
-                    border: '1px solid #e2e8f0'
-                  }}>
-                    <p style={{ margin: 0, fontSize: 13, lineHeight: 1.8, color: '#374151', whiteSpace: 'pre-wrap' }}>
-                      {section.trim()}
-                    </p>
+                  <div key={i} style={{ marginBottom: 12, padding: 14, borderRadius: 10, background: i % 2 === 0 ? 'var(--surface-2)' : 'var(--surface)', border: '1px solid var(--border)' }}>
+                    {section.icon && (
+                      <p style={{ margin: '0 0 6px', fontSize: 12, fontWeight: 700, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {section.icon}{section.label}
+                      </p>
+                    )}
+                    <p style={{ margin: 0, fontSize: 12, fontWeight: 500, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{renderReport(section.text)}</p>
                   </div>
                 ))
               ) : (
-                <div style={{ padding: 16, borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
-                  <p style={{ margin: 0, fontSize: 13, lineHeight: 1.8, color: '#374151', whiteSpace: 'pre-wrap' }}>{report}</p>
+                <div className="modal-section">
+                  <p style={{ margin: 0, fontSize: 12, fontWeight: 500, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{renderReport(report)}</p>
                 </div>
               )}
 
               {/* 데이터 요약 */}
-              <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, marginTop: 16, border: '1px solid #e2e8f0' }}>
-                <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 700, color: '#0f172a' }}>📋 데이터 요약</p>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: 12 }}>
-                  <div><span style={{ color: '#6b7280' }}>감성: </span><span style={{ fontWeight: 600 }}>긍정 {Math.round((analysis?.sentiment?.positive || 0) * 100)}% / 부정 {Math.round((analysis?.sentiment?.negative || 0) * 100)}%</span></div>
-                  <div><span style={{ color: '#6b7280' }}>뉴스 신뢰도: </span><span style={{ fontWeight: 600 }}>{Math.round((analysis?.news_agent_confidence || 0) * 100)}%</span></div>
-                  <div><span style={{ color: '#6b7280' }}>분석 뉴스: </span><span style={{ fontWeight: 600 }}>{analysis?.news?.length || 0}건</span></div>
-                  <div><span style={{ color: '#6b7280' }}>예측 신뢰구간: </span><span style={{ fontWeight: 600 }}>{finalPred ? `${finalPred.lower?.toLocaleString()} ~ ${finalPred.upper?.toLocaleString()}원` : '-'}</span></div>
-                  <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#6b7280' }}>경고: </span><span style={{ fontWeight: 600, color: analysis?.warnings?.length ? '#EF4444' : '#10B981' }}>{analysis?.warnings?.join(' / ') || '없음'}</span></div>
-                  <div><span style={{ color: '#6b7280' }}>감성: </span><span style={{ fontWeight: 600 }}>긍정 {Math.round((safeAnalysis.sentiment?.positive || 0) * 100)}% / 부정 {Math.round((safeAnalysis.sentiment?.negative || 0) * 100)}%</span></div>
-                  <div><span style={{ color: '#6b7280' }}>뉴스 신뢰도: </span><span style={{ fontWeight: 600 }}>{Math.round((safeAnalysis.news_agent_confidence || 0) * 100)}%</span></div>
-                  <div><span style={{ color: '#6b7280' }}>분석 뉴스: </span><span style={{ fontWeight: 600 }}>{safeAnalysis.news?.length || 0}건</span></div>
-                  <div><span style={{ color: '#6b7280' }}>예측 신뢰구간: </span><span style={{ fontWeight: 600 }}>{finalPred ? `${finalPred.lower?.toLocaleString()} ~ ${finalPred.upper?.toLocaleString()}원` : '-'}</span></div>
-                  <div style={{ gridColumn: '1 / -1' }}><span style={{ color: '#6b7280' }}>경고: </span><span style={{ fontWeight: 600, color: safeAnalysis.warnings?.length ? '#EF4444' : '#10B981' }}>{safeAnalysis.warnings?.join(' / ') || '없음'}</span></div>
+              <div className="modal-section" style={{ marginTop: 16 }}>
+                <p className="modal-section-title">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                  데이터 요약
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, fontSize: 12, fontWeight: 500 }}>
+                  <div><span style={{ color: 'var(--text-muted)' }}>감성: </span><span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>긍정 {Math.round((safeAnalysis.sentiment?.positive || 0) * 100)}% / 부정 {Math.round((safeAnalysis.sentiment?.negative || 0) * 100)}%</span></div>
+                  <div><span style={{ color: 'var(--text-muted)' }}>뉴스 신뢰도: </span><span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{Math.round((safeAnalysis.news_agent_confidence || 0) * 100)}%</span></div>
+                  <div><span style={{ color: 'var(--text-muted)' }}>분석 뉴스: </span><span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{safeAnalysis.news?.length || 0}건</span></div>
+                  <div><span style={{ color: 'var(--text-muted)' }}>예측 신뢰구간: </span><span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{finalPred ? `${finalPred.lower?.toLocaleString()} ~ ${finalPred.upper?.toLocaleString()}원` : '-'}</span></div>
+                  <div style={{ gridColumn: '1 / -1' }}><span style={{ color: 'var(--text-muted)' }}>경고: </span><span style={{ fontWeight: 600, color: safeAnalysis.warnings?.length ? 'var(--negative)' : 'var(--positive)' }}>{safeAnalysis.warnings?.join(' / ') || '없음'}</span></div>
                 </div>
               </div>
 
               {/* 버튼 */}
-              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                <button onClick={handleSave} style={{ flex: 1, padding: '12px 0', borderRadius: 10, border: 'none', background: '#0f172a', color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                  📥 리포트 저장 (.txt)
+              <div className="modal-action-row">
+                <button onClick={handleSave} className="btn-modal-primary">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  리포트 저장 (.txt)
                 </button>
-                <button onClick={() => setShow(false)} style={{ flex: 1, padding: '12px 0', borderRadius: 10, border: '1px solid #e2e8f0', background: '#fff', color: '#374151', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                  닫기
-                </button>
+                <button onClick={() => setShow(false)} className="btn-modal-secondary">닫기</button>
               </div>
 
-              <p style={{ margin: '12px 0 0', fontSize: 10, color: '#9ca3af', textAlign: 'center' }}>
-                ※ 이 리포트는 AI가 자동 생성한 투자 참고용 자료이며 투자 권유가 아닙니다. 투자 결정은 본인 책임입니다.
+              <p style={{ margin: '12px 0 0', fontSize: 10, color: 'var(--text-muted)', textAlign: 'center' }}>
+                ※ 이 리포트는 AI가 자동 생성한 투자 참고용 자료이며 투자 권유가 아닙니다.
               </p>
             </div>
           </div>

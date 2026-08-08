@@ -53,9 +53,9 @@ function ReliabilityCard({ stock, analysis, isLoading }) {
   }
 
   // 동적 색상 처리 (70점 이상 green, 50점 이상 amber, 이하 red)
-  const scoreColor = score >= 70 ? '#10B981' : score >= 50 ? '#F59E0B' : '#EF4444';
+  const scoreColor = score >= 70 ? 'var(--positive)' : score >= 50 ? '#F59E0B' : 'var(--negative)';
 
-  const radius = 52;
+  const radius = 58;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference * (1 - score / 100);
 
@@ -66,14 +66,14 @@ function ReliabilityCard({ stock, analysis, isLoading }) {
         <p className="text-muted">분석 중...</p>
       ) : (
         <div className="reliability-content">
-          <div style={{ position: 'relative', width: 130, height: 130 }}>
-            <svg width="130" height="130" style={{ transform: 'rotate(-90deg)' }}>
-              <circle cx="65" cy="65" r={radius} fill="none" stroke="var(--ring-track, #E5E5E0)" strokeWidth="9" />
+          <div style={{ position: 'relative', width: 150, height: 150 }}>
+            <svg width="150" height="150" style={{ transform: 'rotate(-90deg)' }}>
+              <circle cx="75" cy="75" r={radius} fill="none" stroke="var(--ring-track, #E5E5E0)" strokeWidth="11" />
               <circle
-                cx="65" cy="65" r={radius}
+                cx="75" cy="75" r={radius}
                 fill="none"
                 stroke={scoreColor}
-                strokeWidth="9"
+                strokeWidth="11"
                 strokeDasharray={circumference}
                 strokeDashoffset={offset}
                 strokeLinecap="round"
@@ -90,10 +90,10 @@ function ReliabilityCard({ stock, analysis, isLoading }) {
           </div>
           <div className="progress-group">
             {[
-              { label: '정보', value: infoScore, color: '#10B981' },
+              { label: '정보', value: infoScore, color: 'var(--positive)' },
               { label: '감성/수급/재무/모멘텀', value: sentimentScore, color: '#F59E0B' },
               { label: '예측', value: predictScore, color: '#F59E0B' },
-              { label: '리포트', value: reportScore, color: '#10B981' },
+              { label: '리포트', value: reportScore, color: 'var(--positive)' },
             ].map(({ label, value, color }) => (
               <div key={label} className="progress-item">
                 <span>{label}</span>

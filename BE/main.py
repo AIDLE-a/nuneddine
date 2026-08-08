@@ -1015,6 +1015,9 @@ def analyze(ticker: str = "005930.KS", force_refresh: bool = False):
         if bad_fields:
             print("🚨 잘못된 float 값(NaN/Inf) 발견:", bad_fields)
 
+        # ── 예측 기록 저장 ──
+        _save_prediction_record_for_batch(ticker, stock_name, data_result, sentiment_result, prediction_result, llm_report)
+
         # ── ★[버그 수정] 응답을 캐시에 저장 ──
         _analyze_cache[ticker] = {"response": response, "ts": time.time()}
         return response

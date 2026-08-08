@@ -5,7 +5,7 @@ function StockNameHeader({ stock, isFavorite, onToggleFavorite }) {
   return (
     <div className="summary-stock-header">
       <div className="summary-stock-meta">
-        <span className="summary-stock-ticker">{stock.code}</span>
+        <h3 style={{ marginBottom: 4 }}>{stock.code}</h3>
       </div>
       <div className="summary-stock-name-row">
         <span className="summary-stock-name">{stock.name}</span>
@@ -35,7 +35,7 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
         </div>
         {['오늘 예측가', '감성 방향', '분석 뉴스'].map((title) => (
           <div key={title} className="card summary-card">
-            <span className="card-title">{title}</span>
+            <h3>{title}</h3>
             <span className="card-value text-muted loading-dash">----</span>
           </div>
         ))}
@@ -88,17 +88,17 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
           <span className={`card-sub ${isPositive ? 'positive' : 'negative'}`}>{changeStr}</span>
         </div>
         <div className="card summary-card">
-          <span className="card-title">오늘 예측가</span>
+          <h3>오늘 예측가</h3>
           <span className="card-value">{formattedPredict}</span>
           <span className="card-sub text-muted">{formattedLower} ~ {formattedUpper}</span>
         </div>
         <div className="card summary-card">
-          <span className="card-title">감성 방향</span>
+          <h3>감성 방향</h3>
           <span className="card-value">{sentimentLabel}</span>
           <span className="card-sub text-muted">긍정 {posStr}% / 부정 {negStr}%</span>
         </div>
         <div className="card summary-card">
-          <span className="card-title">분석 뉴스</span>
+          <h3>분석 뉴스</h3>
           <span className="card-value">{newsCountStr}</span>
           <span className={`card-sub ${newsStatus === '권장치 미달' ? 'negative' : 'positive'}`}>{newsStatus}</span>
         </div>
@@ -114,17 +114,17 @@ function SummaryCards({ stock, analysis, isLoading, isFavorite, onToggleFavorite
         <span className={`card-sub ${stock.isPositive ? 'positive' : 'negative'}`}>{stock.change}</span>
       </div>
       <div className="card summary-card">
-        <span className="card-title">오늘 예측가</span>
+        <h3>오늘 예측가</h3>
         <span className="card-value">{stock.predict7d}</span>
         <span className="card-sub text-muted">{stock.range}</span>
       </div>
       <div className="card summary-card">
-        <span className="card-title">감성 방향</span>
+        <h3>감성 방향</h3>
         <span className="card-value">{stock.sentiment}</span>
         <span className="card-sub text-muted">{stock.sentimentSub}</span>
       </div>
       <div className="card summary-card">
-        <span className="card-title">분석 뉴스</span>
+        <h3>분석 뉴스</h3>
         <span className="card-value">{stock.newsCount}</span>
         <span className={`card-sub ${stock.newsStatus === '권장치 미달' ? 'negative' : 'positive'}`}>
           {stock.newsStatus}

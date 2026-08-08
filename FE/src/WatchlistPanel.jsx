@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MOCK_STOCKS } from './App.jsx';
 
 function makeStockObj(ticker, name) {
@@ -40,11 +40,12 @@ function WatchlistPanel({ favorites, history, recommendations, onSelectStock, on
     }
   };
 
+  useEffect(() => {
+    fetchEvaluation();
+  }, []);
+
   const handleOpenEvalModal = () => {
     setShowEvalModal(true);
-    if (!evalData) {
-      fetchEvaluation();
-    }
   };
 
   // 섹터별 그룹핑
@@ -128,101 +129,59 @@ function WatchlistPanel({ favorites, history, recommendations, onSelectStock, on
             {/* 📊 평가 지표 모달 오픈 버튼 */}
             <button
               onClick={handleOpenEvalModal}
-              style={{
-                fontSize: 11,
-                padding: '3px 8px',
-                borderRadius: 4,
-                border: '1px solid var(--border-color, #ccc)',
-                background: 'var(--btn-bg, #f5f5f5)',
-                color: 'var(--text-color, #333)',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4
-              }}
+              className="btn-secondary"
+              style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
             >
-              📈 추천 시스템 평가 리포트
+              추천 시스템 평가 리포트
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
             </button>
           </div>
 
-          <div className="rec-panel-body">
-            {Object.entries(recBySector).map(([sector, recs]) => (
-              <div key={sector} className="rec-sector-group">
-                <span className="rec-sector-label">{sector}</span>
-                <div className="watchlist-chips" style={{ marginTop: 4, maxHeight: 'none', overflow: 'visible' }}>
-                  {recs.map(r => (
-                    <div
-                      key={r.ticker}
-                      className="watchlist-chip watchlist-chip--rec"
-                      style={{ position: 'relative' }}
-                      title={r.ticker}
-                    >
-                      <span
-                        className="watchlist-chip-name"
-                        onClick={() => onSelectStock(makeStockObj(r.ticker, r.name))}
-                      >
-                        {r.name}
-                      </span>
+          <div className="watchlist-chips">
+            {Object.values(recBySector).flat().map(r => (
+              <div
+                key={r.ticker}
+                className="watchlist-chip watchlist-chip--rec"
+                style={{ position: 'relative' }}
+                title={r.ticker}
+              >
+                <span
+                  className="watchlist-chip-name"
+                  onClick={() => onSelectStock(makeStockObj(r.ticker, r.name))}
+                >
+                  {r.name}
+                </span>
 
-                      {r.reason && (
-                        <button
-                          className="rec-reason-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenReasonTicker(prev => (prev === r.ticker ? null : r.ticker));
-                          }}
-                          title="왜 추천됐나요?"
-                          style={{
-                            marginLeft: 4,
-                            fontSize: 10,
-                            width: 14,
-                            height: 14,
-                            lineHeight: '14px',
-                            borderRadius: '50%',
-                            border: '1px solid var(--text-muted)',
-                            color: 'var(--text-muted)',
-                            background: 'transparent',
-                            cursor: 'pointer',
-                            padding: 0,
-                          }}
-                        >
-                          ?
-                        </button>
-                      )}
-
-                      {openReasonTicker === r.ticker && r.reason && (
-                        <div
-                          className="rec-reason-tooltip"
-                          style={{
-                            position: 'absolute',
-                            top: '110%',
-                            left: 0,
-                            zIndex: 20,
-                            background: 'var(--tooltip-bg)',
-                            border: '1px solid var(--tooltip-border)',
-                            borderRadius: 8,
-                            padding: '8px 10px',
-                            fontSize: 12,
-                            width: 200,
-                            lineHeight: 1.4,
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
-                          }}
-                        >
-                          {r.reason}
-                          {(r.from_content || r.from_cf) && (
-                            <div style={{ marginTop: 4, fontSize: 10, color: 'var(--text-muted)' }}>
-                              {r.from_content && r.from_cf
-                                ? '가격 유사도 + 사용자 패턴 기반'
-                                : r.from_content
-                                ? '가격 유사도 기반'
-                                : '사용자 관심등록 패턴 기반'}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                {openReasonTicker === r.ticker && r.reason && (
+                  <div
+                    className="rec-reason-tooltip"
+                    style={{
+                      position: 'absolute',
+                      top: '110%',
+                      left: 0,
+                      zIndex: 20,
+                      background: 'var(--tooltip-bg)',
+                      border: '1px solid var(--tooltip-border)',
+                      borderRadius: 8,
+                      padding: '8px 10px',
+                      fontSize: 12,
+                      width: 200,
+                      lineHeight: 1.4,
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+                    }}
+                  >
+                    {r.reason}
+                    {(r.from_content || r.from_cf) && (
+                      <div style={{ marginTop: 4, fontSize: 10, color: 'var(--text-muted)' }}>
+                        {r.from_content && r.from_cf
+                          ? '가격 유사도 + 사용자 패턴 기반'
+                          : r.from_content
+                          ? '가격 유사도 기반'
+                          : '사용자 관심등록 패턴 기반'}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -232,150 +191,114 @@ function WatchlistPanel({ favorites, history, recommendations, onSelectStock, on
       {/* 📊 오프라인 평가 지표 상세 모달 */}
       {showEvalModal && (
         <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          backgroundColor: 'rgba(15,41,34,0.35)',
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
           zIndex: 1000
-        }}>
+        }} onClick={() => setShowEvalModal(false)}>
           <div style={{
-            background: 'var(--bg-card, #ffffff)',
-            color: 'var(--text-main, #222222)',
-            borderRadius: 12,
+            background: 'var(--surface)',
+            color: 'var(--text-primary)',
+            borderRadius: 'var(--radius-lg)',
             padding: 24,
-            width: '90%',
-            maxWidth: 550,
-            maxHeight: '85vh',
-            overflowY: 'auto',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h3 style={{ margin: 0, fontSize: 18 }}>📈 추천 시스템 평가 리포트</h3>
-              <button
-                onClick={() => setShowEvalModal(false)}
-                style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'inherit' }}
-              >
-                ✕
-              </button>
+            width: '90%', maxWidth: 540,
+            maxHeight: '85vh', overflowY: 'auto',
+            boxShadow: 'var(--shadow-lg)',
+            border: '1.5px solid var(--border)',
+          }} onClick={e => e.stopPropagation()}>
+
+            {/* 헤더 */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 5 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+                추천 시스템 평가 리포트
+              </h3>
+              <button onClick={() => setShowEvalModal(false)} style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--text-muted)', fontSize: 18, lineHeight: 1, padding: 4,
+              }}>✕</button>
             </div>
 
             {evalLoading ? (
-              <div style={{ textAlign: 'center', padding: '40px 0' }}>
-                <p>평가 지표를 재계산/불러오는 중입니다...</p>
+              <div style={{ textAlign: 'center', padding: '48px 0', color: 'var(--text-muted)' }}>
+                <p style={{ fontSize: 14 }}>평가 지표를 불러오는 중입니다...</p>
               </div>
             ) : evalError ? (
-              <div style={{ color: 'red', padding: '20px 0' }}>
-                <p>⚠️ 오류 발생: {evalError}</p>
-                <button onClick={() => fetchEvaluation(true)}>다시 시도</button>
+              <div style={{ padding: '20px 0' }}>
+                <p style={{ color: 'var(--negative)', fontSize: 13, marginBottom: 12 }}>오류 발생: {evalError}</p>
+                <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => fetchEvaluation(true)}>다시 시도</button>
               </div>
             ) : evalData ? (
               <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-                {/* 1. 요약 카드 */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(2, 1fr)',
-                  gap: 12,
-                  marginBottom: 16
-                }}>
-                  <div style={{ background: 'var(--bg-sub, #f8f9fa)', padding: 12, borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: 'gray' }}>전체 커버리지 (Coverage)</div>
-                    <div style={{ fontSize: 18, fontWeight: 'bold', color: '#2b6cb0' }}>
-                      {((evalData.summary?.coverage ?? 0) * 100).toFixed(1)}%
+
+                {/* 요약 카드 2×2 */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10, marginBottom: 16 }}>
+                  {[
+                    { label: '전체 커버리지', value: `${((evalData.summary?.coverage ?? 0) * 100).toFixed(1)}%` },
+                    { label: '평균 다양성', value: (evalData.summary?.avg_diversity ?? 0).toFixed(3) },
+                    { label: '평균 참신성', value: (evalData.summary?.avg_novelty ?? 0).toFixed(3) },
+                    { label: '평균 처리 속도', value: `${(evalData.summary?.avg_speed_ms ?? 0).toFixed(1)} ms` },
+                  ].map(({ label, value }) => (
+                    <div key={label} style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '10px 14px' }}>
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>{value}</div>
                     </div>
-                  </div>
-                  <div style={{ background: 'var(--bg-sub, #f8f9fa)', padding: 12, borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: 'gray' }}>평균 추천 다양성 (Diversity)</div>
-                    <div style={{ fontSize: 18, fontWeight: 'bold', color: '#2b6cb0' }}>
-                      {(evalData.summary?.avg_diversity ?? 0).toFixed(3)}
-                    </div>
-                  </div>
-                  <div style={{ background: 'var(--bg-sub, #f8f9fa)', padding: 12, borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: 'gray' }}>평균 참신성 (Novelty)</div>
-                    <div style={{ fontSize: 18, fontWeight: 'bold', color: '#2b6cb0' }}>
-                      {(evalData.summary?.avg_novelty ?? 0).toFixed(3)}
-                    </div>
-                  </div>
-                  <div style={{ background: 'var(--bg-sub, #f8f9fa)', padding: 12, borderRadius: 8 }}>
-                    <div style={{ fontSize: 11, color: 'gray' }}>평균 처리 속도 (Speed)</div>
-                    <div style={{ fontSize: 18, fontWeight: 'bold', color: '#2b6cb0' }}>
-                      {((evalData.summary?.avg_speed_ms ?? 0)).toFixed(1)} ms
-                    </div>
-                  </div>
+                  ))}
                 </div>
 
-                {/* 2. 정확도 지표 */}
+                {/* 정확도 지표 */}
                 {evalData.summary?.accuracy && (
-                  <div style={{ marginBottom: 16, background: 'var(--bg-sub, #f8f9fa)', padding: 12, borderRadius: 8 }}>
-                    <div style={{ fontWeight: 'bold', marginBottom: 6 }}>🎯 정확도/재현율 (Accuracy & Recall)</div>
+                  <div style={{ marginBottom: 16, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '12px 14px' }}>
+                    <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+                      정확도 / 재현율
+                    </div>
                     <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center' }}>
-                      <div>
-                        <div style={{ fontSize: 10, color: 'gray' }}>Hit Rate@K</div>
-                        <div style={{ fontWeight: 'bold' }}>{((evalData.summary.accuracy.hit_rate ?? 0) * 100).toFixed(1)}%</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10, color: 'gray' }}>Precision@K</div>
-                        <div style={{ fontWeight: 'bold' }}>{((evalData.summary.accuracy.precision ?? 0) * 100).toFixed(1)}%</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 10, color: 'gray' }}>Recall@K</div>
-                        <div style={{ fontWeight: 'bold' }}>{((evalData.summary.accuracy.recall ?? 0) * 100).toFixed(1)}%</div>
-                      </div>
+                      {[
+                        { label: 'Hit Rate@K', value: `${((evalData.summary.accuracy.hit_rate ?? 0) * 100).toFixed(1)}%` },
+                        { label: 'Precision@K', value: `${((evalData.summary.accuracy.precision ?? 0) * 100).toFixed(1)}%` },
+                        { label: 'Recall@K', value: `${((evalData.summary.accuracy.recall ?? 0) * 100).toFixed(1)}%` },
+                      ].map(({ label, value }) => (
+                        <div key={label}>
+                          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 4 }}>{label}</div>
+                          <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{value}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
 
-                {/* 3. 테스트 종목별 상세 세부 정보 */}
-                <h4 style={{ margin: '16px 0 8px 0' }}>📋 종목별 상세 결과</h4>
-                <div style={{ border: '1px solid var(--border-color, #eee)', borderRadius: 8, overflow: 'hidden' }}>
+                {/* 종목별 상세 */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>종목별 상세 결과</div>
+                <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12 }}>
                     <thead>
-                      <tr style={{ background: 'var(--bg-sub, #f1f3f5)', borderBottom: '1px solid var(--border-color, #eee)' }}>
-                        <th style={{ padding: '6px 8px' }}>Ticker</th>
-                        <th style={{ padding: '6px 8px' }}>다양성</th>
-                        <th style={{ padding: '6px 8px' }}>참신성</th>
-                        <th style={{ padding: '6px 8px' }}>속도</th>
+                      <tr style={{ background: 'var(--surface-2)', borderBottom: '1px solid var(--border)' }}>
+                        {['Ticker', '다양성', '참신성', '속도'].map(h => (
+                          <th key={h} style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--text-secondary)' }}>{h}</th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody>
-                      {evalData.details?.map((item) => (
-                        <tr key={item.ticker} style={{ borderBottom: '1px solid var(--border-color, #eee)' }}>
-                          <td style={{ padding: '6px 8px', fontWeight: '500' }}>{item.ticker}</td>
-                          <td style={{ padding: '6px 8px' }}>{item.metrics?.diversity?.toFixed(3) ?? '-'}</td>
-                          <td style={{ padding: '6px 8px' }}>{item.metrics?.novelty?.toFixed(3) ?? '-'}</td>
-                          <td style={{ padding: '6px 8px' }}>{item.execution_time_ms?.toFixed(1)} ms</td>
+                      {evalData.details?.map((item, i) => (
+                        <tr key={item.ticker} style={{ borderBottom: i < evalData.details.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                          <td style={{ padding: '8px 10px', fontWeight: 600, color: 'var(--accent)' }}>{item.ticker}</td>
+                          <td style={{ padding: '8px 10px', color: 'var(--text-primary)' }}>{item.metrics?.diversity?.toFixed(3) ?? '-'}</td>
+                          <td style={{ padding: '8px 10px', color: 'var(--text-primary)' }}>{item.metrics?.novelty?.toFixed(3) ?? '-'}</td>
+                          <td style={{ padding: '8px 10px', color: 'var(--text-primary)' }}>{item.execution_time_ms?.toFixed(1)} ms</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                <div style={{ marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <button
-                    onClick={() => fetchEvaluation(true)}
-                    style={{
-                      fontSize: 11,
-                      padding: '4px 10px',
-                      background: 'none',
-                      border: '1px solid #aaa',
-                      borderRadius: 4,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    🔄 평가 지표 강제 새로고침
+                {/* 하단 버튼 */}
+                <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <button className="btn-secondary" style={{ fontSize: 12, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 5 }} onClick={() => fetchEvaluation(true)}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    새로고침
                   </button>
-                  <button
-                    onClick={() => setShowEvalModal(false)}
-                    style={{
-                      padding: '6px 16px',
-                      background: '#2b6cb0',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: 6,
-                      cursor: 'pointer'
-                    }}
-                  >
+                  <button className="btn-analyze" style={{ fontSize: 13, padding: '8px 20px' }} onClick={() => setShowEvalModal(false)}>
                     닫기
                   </button>
                 </div>

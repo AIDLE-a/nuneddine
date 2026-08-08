@@ -10,6 +10,19 @@ const DAYS = ['7일전', '6일전', '5일전', '4일전', '3일전', '2일전', 
 function StockChartCard({ stock, analysis }) {
   const [showPriceDetail, setShowPriceDetail] = useState(false);
   const [showRealtime, setShowRealtime] = useState(false);
+  const isDark = document.body.classList.contains('dark-mode');
+
+  const chartColors = {
+    grid: isDark ? 'rgba(255,255,255,0.08)' : '#f0f0f0',
+    tick: isDark ? '#A3A3A3' : '#6b7280',
+    tickVol: isDark ? '#A3A3A3' : '#9ca3af',
+    priceLine: isDark ? '#FFFFFF' : '#111827',
+    priceDot: isDark ? '#FFFFFF' : '#111827',
+    refLine: isDark ? 'rgba(255,255,255,0.2)' : '#d1d5db',
+    tooltipBg: isDark ? '#1a1a1a' : '#fff',
+    tooltipBorder: isDark ? 'rgba(255,255,255,0.12)' : '#e5e7eb',
+    tooltipText: isDark ? '#A3A3A3' : '#6b7280',
+  };
   const isKorean = isKoreanStock(stock, analysis);
 
   // 데이터 추출
@@ -137,10 +150,10 @@ function StockChartCard({ stock, analysis }) {
     const val = payload.find(p => p.dataKey === 'price' || p.dataKey === 'predicted')?.value;
     const isPredict = typeof label === 'string' && label.startsWith('D+');
     return (
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
-        <p style={{ margin: '0 0 4px', color: '#6b7280' }}>{label}</p>
+      <div style={{ background: chartColors.tooltipBg, border: `1px solid ${chartColors.tooltipBorder}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+        <p style={{ margin: '0 0 4px', color: chartColors.tooltipText }}>{label}</p>
         {val != null && (
-          <p style={{ margin: 0, fontWeight: 600, color: isPredict ? '#F59E0B' : '#10B981' }}>
+          <p style={{ margin: 0, fontWeight: 600, color: isPredict ? '#F59E0B' : 'var(--positive)' }}>
             {isKorean ? `${val.toLocaleString()}원` : `$${val.toLocaleString()}`}
           </p>
         )}
@@ -153,9 +166,9 @@ function StockChartCard({ stock, analysis }) {
     if (!active || !payload?.length) return null;
     const vol = payload[0]?.value;
     return (
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 12px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.12)' }}>
-        <p style={{ margin: '0 0 4px', color: '#6b7280' }}>{label}</p>
-        {vol != null && <p style={{ margin: 0, fontWeight: 600, color: '#10B981' }}>거래량: {vol.toLocaleString()}주</p>}
+      <div style={{ background: chartColors.tooltipBg, border: `1px solid ${chartColors.tooltipBorder}`, borderRadius: 8, padding: '8px 12px', fontSize: 13, boxShadow: '0 2px 8px rgba(0,0,0,0.2)' }}>
+        <p style={{ margin: '0 0 4px', color: chartColors.tooltipText }}>{label}</p>
+        {vol != null && <p style={{ margin: 0, fontWeight: 600, color: 'var(--positive)' }}>거래량: {vol.toLocaleString()}주</p>}
       </div>
     );
   };
@@ -163,70 +176,62 @@ function StockChartCard({ stock, analysis }) {
   return (
     <>
       <div className="card chart-section">
-        {/* 영업이익 성장률 / 영업이익률 카드 */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, background: '#f9fafb', padding: 12, borderRadius: 8 }}>
-          <div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>영업이익 성장률</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: opGrowth != null ? (opGrowth >= 0 ? '#10B981' : '#EF4444') : '#9ca3af' }}>
-              {opGrowth != null ? (opGrowth >= 0 ? `+${opGrowth}%` : `${opGrowth}%`) : '–'}
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>영업이익률</div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: opMargin != null ? (opMargin >= 0 ? '#10B981' : '#EF4444') : '#9ca3af' }}>
-              {opMargin != null ? (opMargin >= 0 ? `+${opMargin}%` : `${opMargin}%`) : '–'}
-            </div>
-          </div>
-        </div>
-
-        {/* 주가 차트 타이틀 및 버튼 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>● 주가 흐름 & 예측</h3>
-          <div style={{ display: 'flex', gap: 8 }}>
-            {realtimeData.length > 0 && (
-              <button onClick={() => setShowRealtime(true)} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, border: '1px solid #3B82F6', background: 'transparent', color: '#3B82F6', cursor: 'pointer', fontWeight: 500 }}>
-                실시간 ↗
-              </button>
-            )}
-            <button onClick={() => setShowPriceDetail(true)} style={{ fontSize: 12, padding: '4px 12px', borderRadius: 20, border: '1px solid #d1d5db', background: 'transparent', color: '#6b7280', cursor: 'pointer' }}>
-              전체 수급/거래량 상세 ↗
+        {/* 전체 한 줄: 주가 흐름 & 예측 타이틀 + 재무지표 + 버튼 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'nowrap' }}>
+          <h3 style={{ margin: 0, flexShrink: 0 }}>주가 흐름 & 예측</h3>
+          <span style={{ width: 1, height: 12, background: 'var(--border)', display: 'inline-block', flexShrink: 0 }} />
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>영업이익 성장률</span>
+          <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', color: opGrowth != null ? (opGrowth >= 0 ? 'var(--positive)' : 'var(--negative)') : 'var(--text-muted)' }}>
+            {opGrowth != null ? (opGrowth >= 0 ? `+${opGrowth}%` : `${opGrowth}%`) : '–'}
+          </span>
+          <span style={{ width: 1, height: 12, background: 'var(--border)', display: 'inline-block', flexShrink: 0 }} />
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>영업이익률</span>
+          <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', color: opMargin != null ? (opMargin >= 0 ? 'var(--positive)' : 'var(--negative)') : 'var(--text-muted)' }}>
+            {opMargin != null ? (opMargin >= 0 ? `+${opMargin}%` : `${opMargin}%`) : '–'}
+          </span>
+          <span style={{ flex: 1 }} />
+          {realtimeData.length > 0 && (
+            <button onClick={() => setShowRealtime(true)} className="btn-secondary" style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              실시간
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
             </button>
-          </div>
+          )}
+          <button onClick={() => setShowPriceDetail(true)} className="btn-secondary" style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            전체 수급/거래량 상세
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>
+          </button>
         </div>
 
         {/* 메인 주가 & 예측 선 차트 */}
-        <ResponsiveContainer width="100%" height={220}>
+        <ResponsiveContainer width="100%" height={150}>
           <ComposedChart data={priceData} margin={{ top: 10, right: 16, left: 0, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis dataKey="day" tick={{ fontSize: 11, fill: '#6b7280' }} />
-            <YAxis domain={[minVal, maxVal]} tickFormatter={formatPrice} tick={{ fontSize: 11, fill: '#6b7280' }} width={48} />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} />
+            <XAxis dataKey="day" tick={{ fontSize: 11, fill: chartColors.tick }} />
+            <YAxis domain={[minVal, maxVal]} tickFormatter={formatPrice} tick={{ fontSize: 11, fill: chartColors.tick }} width={48} />
             <Tooltip content={<PriceTooltip />} />
 
-            {/* 실제 종가 선 (검은색) */}
-            <Line type="monotone" dataKey="price" stroke="#111827" strokeWidth={2.5} dot={{ r: 4, fill: '#111827' }} connectNulls={false} />
+            {/* 실제 종가 선 */}
+            <Line type="monotone" dataKey="price" stroke={chartColors.priceLine} strokeWidth={2.5} dot={{ r: 4, fill: chartColors.priceDot }} connectNulls={false} />
 
             {/* 예측 주가 선 (주황색 점선) */}
-            <Line type="monotone" dataKey="predicted" stroke="#F59E0B" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, fill: '#F59E0B', stroke: '#fff', strokeWidth: 1.5 }} connectNulls={true} />
+            <Line type="monotone" dataKey="predicted" stroke="#F59E0B" strokeWidth={2.5} strokeDasharray="5 5" dot={{ r: 4, fill: '#F59E0B', stroke: isDark ? '#000' : '#fff', strokeWidth: 1.5 }} connectNulls={true} />
 
             {/* 어제/오늘 구분 기준선 */}
-            <ReferenceLine x="오늘" stroke="#d1d5db" strokeDasharray="3 3" />
+            <ReferenceLine x="오늘" stroke={chartColors.refLine} strokeDasharray="3 3" />
           </ComposedChart>
         </ResponsiveContainer>
 
         {/* 하단 거래량 막대 차트 */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0 6px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 500, color: '#374151' }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: '#10B981', display: 'inline-block' }} />
-            거래량 (최근 7일)
-          </div>
+          <h3 style={{ margin: 0 }}>거래량 (최근 7일)</h3>
         </div>
-        <ResponsiveContainer width="100%" height={90}>
+        <ResponsiveContainer width="100%" height={70}>
           <BarChart data={volumeData} margin={{ top: 0, right: 16, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-            <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#9ca3af' }} />
-            <YAxis tickFormatter={formatVolume} tick={{ fontSize: 9, fill: '#9ca3af' }} width={40} />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartColors.grid} vertical={false} />
+            <XAxis dataKey="day" tick={{ fontSize: 10, fill: chartColors.tickVol }} />
+            <YAxis tickFormatter={formatVolume} tick={{ fontSize: 9, fill: chartColors.tickVol }} width={40} />
             <Tooltip content={<VolumeTooltip />} />
-            <Bar dataKey="volume" fill="#10B981" opacity={0.75} radius={[3, 3, 0, 0]} />
+            <Bar dataKey="volume" fill="var(--positive)" opacity={0.75} radius={[3, 3, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -243,7 +248,7 @@ function StockChartCard({ stock, analysis }) {
               <p style={{ margin: '4px 0 0', fontSize: 12, color: '#6b7280' }}>
                 {realtimeData.length}개 체결 포인트 ({firstRealtime?.time} ~ {latestRealtime?.time})
                 {rtChange != null && (
-                  <span style={{ marginLeft: 8, fontWeight: 600, color: rtChange >= 0 ? '#10B981' : '#EF4444' }}>
+                  <span style={{ marginLeft: 8, fontWeight: 600, color: rtChange >= 0 ? 'var(--positive)' : 'var(--negative)' }}>
                     {rtChange >= 0 ? '+' : ''}{rtChange.toLocaleString()}원 ({rtChangePct?.toFixed(2)}%)
                   </span>
                 )}
@@ -257,9 +262,9 @@ function StockChartCard({ stock, analysis }) {
               <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
               <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#9ca3af' }} interval="preserveStartEnd" />
               <YAxis yAxisId="price" domain={[rtMin, rtMax]} tickFormatter={formatPrice} tick={{ fontSize: 10, fill: '#3B82F6' }} width={52} />
-              <YAxis yAxisId="volume" orientation="right" tickFormatter={formatVolume} tick={{ fontSize: 9, fill: '#10B981' }} width={40} />
+              <YAxis yAxisId="volume" orientation="right" tickFormatter={formatVolume} tick={{ fontSize: 9, fill: 'var(--positive)' }} width={40} />
               <Line yAxisId="price" type="monotone" dataKey="price" stroke="#3B82F6" strokeWidth={2} dot={false} />
-              <Bar yAxisId="volume" dataKey="volume" fill="#10B981" opacity={0.4} radius={[2, 2, 0, 0]} />
+              <Bar yAxisId="volume" dataKey="volume" fill="var(--positive)" opacity={0.4} radius={[2, 2, 0, 0]} />
             </ComposedChart>
           </ResponsiveContainer>
         </ModalWrapper>
@@ -282,7 +287,7 @@ function StockChartCard({ stock, analysis }) {
                 <th style={{ padding: '10px 8px', textAlign: 'left', color: '#6b7280', fontSize: 12 }}>날짜</th>
                 <th style={{ padding: '10px 8px', textAlign: 'right', color: '#6b7280', fontSize: 12 }}>종가</th>
                 <th style={{ padding: '10px 8px', textAlign: 'right', color: '#6b7280', fontSize: 12 }}>전일비</th>
-                <th style={{ padding: '10px 8px', textAlign: 'right', color: '#10B981', fontSize: 12 }}>총 거래량</th>
+                <th style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--positive)', fontSize: 12 }}>총 거래량</th>
                 <th style={{ padding: '10px 8px', textAlign: 'right', color: '#F59E0B', fontSize: 12 }}>개인 수급</th>
                 <th style={{ padding: '10px 8px', textAlign: 'right', color: '#8B5CF6', fontSize: 12 }}>외국인 수급</th>
                 <th style={{ padding: '10px 8px', textAlign: 'right', color: '#3B82F6', fontSize: 12 }}>기관 수급</th>
@@ -295,19 +300,19 @@ function StockChartCard({ stock, analysis }) {
                   <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#111827' }}>
                     {isKorean ? `${row.price.toLocaleString()}원` : `$${row.price.toLocaleString()}`}
                   </td>
-                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 500, color: row.change > 0 ? '#10B981' : row.change < 0 ? '#EF4444' : '#9ca3af' }}>
+                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 500, color: row.change > 0 ? 'var(--positive)' : row.change < 0 ? 'var(--negative)' : '#9ca3af' }}>
                     {row.change != null ? (row.change > 0 ? '+' : '') + row.change.toLocaleString() : '–'}
                   </td>
-                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: '#10B981' }}>
+                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 600, color: 'var(--positive)' }}>
                     {row.volume ? row.volume.toLocaleString() : '–'}
                   </td>
-                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 500, color: row.individual > 0 ? '#F59E0B' : row.individual < 0 ? '#EF4444' : '#9ca3af' }}>
+                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 500, color: row.individual > 0 ? '#F59E0B' : row.individual < 0 ? 'var(--negative)' : '#9ca3af' }}>
                     {formatFlow(row.individual)}
                   </td>
-                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 500, color: row.foreign > 0 ? '#8B5CF6' : row.foreign < 0 ? '#EF4444' : '#9ca3af' }}>
+                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 500, color: row.foreign > 0 ? '#8B5CF6' : row.foreign < 0 ? 'var(--negative)' : '#9ca3af' }}>
                     {formatFlow(row.foreign)}
                   </td>
-                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 500, color: row.institution > 0 ? '#3B82F6' : row.institution < 0 ? '#EF4444' : '#9ca3af' }}>
+                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 500, color: row.institution > 0 ? '#3B82F6' : row.institution < 0 ? 'var(--negative)' : '#9ca3af' }}>
                     {formatFlow(row.institution)}
                   </td>
                 </tr>

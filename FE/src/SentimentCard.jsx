@@ -7,8 +7,8 @@ function InsightItem({ item, isPositive }) {
   const content = (
     <div
       style={{
-        background: isPositive ? 'rgba(236, 253, 245, 0.4)' : 'rgba(254, 242, 242, 0.4)',
-        border: `1px solid ${isPositive ? '#A7F3D0' : '#FECACA'}`,
+        background: isPositive ? 'var(--positive-light)' : 'var(--negative-light)',
+        border: `1px solid ${isPositive ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)'}`,
         borderRadius: '12px',
         padding: '12px',
       }}
@@ -18,8 +18,8 @@ function InsightItem({ item, isPositive }) {
           style={{
             fontSize: '10px',
             fontWeight: '700',
-            color: isPositive ? '#047857' : '#B91C1C',
-            background: isPositive ? '#D1FAE5' : '#FEE2E2',
+            color: isPositive ? 'var(--positive)' : 'var(--negative)',
+            background: isPositive ? 'var(--positive-light)' : 'var(--negative-light)',
             padding: '2px 6px',
             borderRadius: '4px',
           }}
@@ -27,12 +27,12 @@ function InsightItem({ item, isPositive }) {
           {isPositive ? '🟢 주요 호재' : '🔴 주요 악재'}
         </span>
       </div>
-      <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#1F2937', fontWeight: '500' }}>
+      <p style={{ margin: '0 0 4px 0', fontSize: '12px', color: 'var(--text-primary)', fontWeight: '500' }}>
         {item.title || item.summary || item.word}
       </p>
       {item.source_title && (
-        <p style={{ margin: 0, fontSize: '10px', color: '#9CA3AF' }}>
-          {hasLink ? '🔗 ' : ''}
+        <p style={{ margin: 0, fontSize: '10px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
+          {hasLink && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>}
           {item.source_title}
         </p>
       )}
@@ -78,7 +78,7 @@ function DetailModal({ positiveItems, negativeItems, calculationNote, onClose })
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: '#ffffff',
+          background: 'var(--surface)',
           width: '100%',
           maxWidth: '480px',
           borderRadius: '20px',     // ← 상단만 둥글던 것을 사방 둥글게 변경
@@ -94,15 +94,15 @@ function DetailModal({ positiveItems, negativeItems, calculationNote, onClose })
             justifyContent: 'space-between',
             alignItems: 'center',
             padding: '16px 20px',
-            borderBottom: '1px solid #F3F4F6',
+            borderBottom: '1px solid var(--border)',
           }}
         >
-          <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#111827' }}>
+          <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)' }}>
             판단 근거 상세보기
           </h4>
           <button
             onClick={onClose}
-            style={{ border: 'none', background: 'none', fontSize: '18px', color: '#9CA3AF', cursor: 'pointer' }}
+            style={{ border: 'none', background: 'none', fontSize: '18px', color: 'var(--text-muted)', cursor: 'pointer' }}
           >
             ✕
           </button>
@@ -120,8 +120,8 @@ function DetailModal({ positiveItems, negativeItems, calculationNote, onClose })
               cursor: 'pointer',
               fontSize: '12px',
               fontWeight: '700',
-              background: tab === 'positive' ? '#10B981' : '#F3F4F6',
-              color: tab === 'positive' ? '#ffffff' : '#6B7280',
+              background: tab === 'positive' ? 'var(--positive)' : 'var(--surface-2)',
+              color: tab === 'positive' ? '#ffffff' : 'var(--text-muted)',
             }}
           >
             🟢 호재 {positiveItems.length}
@@ -136,8 +136,8 @@ function DetailModal({ positiveItems, negativeItems, calculationNote, onClose })
               cursor: 'pointer',
               fontSize: '12px',
               fontWeight: '700',
-              background: tab === 'negative' ? '#EF4444' : '#F3F4F6',
-              color: tab === 'negative' ? '#ffffff' : '#6B7280',
+              background: tab === 'negative' ? 'var(--negative)' : 'var(--surface-2)',
+              color: tab === 'negative' ? '#ffffff' : 'var(--text-muted)',
             }}
           >
             🔴 악재 {negativeItems.length}
@@ -146,7 +146,7 @@ function DetailModal({ positiveItems, negativeItems, calculationNote, onClose })
 
         <div style={{ overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {active.length === 0 ? (
-            <p style={{ fontSize: '12px', color: '#9CA3AF', textAlign: 'center', padding: '24px 0' }}>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0' }}>
               해당 항목이 없습니다.
             </p>
           ) : (
@@ -157,11 +157,12 @@ function DetailModal({ positiveItems, negativeItems, calculationNote, onClose })
 
           {/* 긍정/부정 비율 계산 방식 설명 */}
           {calculationNote && (
-            <div style={{ marginTop: '8px', background: '#F9FAFB', borderRadius: '10px', padding: '12px' }}>
-              <p style={{ margin: '0 0 4px 0', fontSize: '10px', fontWeight: '700', color: '#6B7280' }}>
-                ℹ️ 비율은 이렇게 계산돼요
+            <div style={{ marginTop: '8px', background: 'var(--surface-2)', borderRadius: '10px', padding: '12px' }}>
+              <p style={{ margin: '0 0 4px 0', fontSize: '10px', fontWeight: '700', color: 'var(--text-muted)' }}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline', verticalAlign: 'middle', marginRight: 3 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                비율은 이렇게 계산돼요
               </p>
-              <p style={{ margin: 0, fontSize: '11px', color: '#9CA3AF', lineHeight: '1.5' }}>
+              <p style={{ margin: 0, fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.5' }}>
                 {calculationNote}
               </p>
             </div>
@@ -195,55 +196,46 @@ function SentimentCard({ analysis }) {
   const totalInsightCount = positiveItems.length + negativeItems.length;
 
   return (
-    <div style={{
-      background: '#ffffff',
-      borderRadius: '16px',
-      padding: '20px',
-      border: '1px solid #f3f4f6',
-      boxShadow: '0 4px 12px rgba(0,0,0,0.03)',
-      marginTop: '16px'
-    }}>
+    <div className="card">
       {/* 1. 상단 감성 헤더 */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <h4 style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#111827' }}>
-          감성 분석
-        </h4>
+        <h3 style={{ margin: 0 }}>감성 분석</h3>
         <div style={{ display: 'flex', gap: '8px', fontSize: '12px', fontWeight: '600' }}>
-          <span style={{ color: '#10B981', background: '#ECFDF5', padding: '3px 10px', borderRadius: '12px' }}>
+          <span style={{ color: 'var(--positive)', background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '12px' }}>
             긍정 {posPercent}%
           </span>
-          <span style={{ color: '#EF4444', background: '#FEF2F2', padding: '3px 10px', borderRadius: '12px' }}>
+          <span style={{ color: 'var(--negative)', background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '3px 10px', borderRadius: '12px' }}>
             부정 {negPercent}%
           </span>
         </div>
       </div>
 
-      {/* 2. 🤖 AI 한 줄 브리핑 박스 */}
+      {/* 2. AI 한 줄 브리핑 박스 */}
       <div style={{
-        backgroundColor: '#F0FDF4',
-        border: '1px solid #DCFCE7',
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
         borderRadius: '12px',
         padding: '12px 14px',
         marginBottom: '16px'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-          <span style={{ fontSize: '12px', fontWeight: '700', color: '#15803D', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            🤖 AI 분석 총평
+          <span style={{ fontSize: '12px', fontWeight: '700', color: 'var(--accent)' }}>
+            AI 분석 총평
           </span>
-          <span style={{ fontSize: '11px', color: '#6B7280' }}>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
             총 {totalCount}건 뉴스 분석
           </span>
         </div>
-        <p style={{ margin: 0, fontSize: '12px', color: '#374151', lineHeight: '1.5', fontWeight: '500' }}>
+        <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5', fontWeight: '500' }}>
           "{hasRealSummary ? rawSummary : '최근 수집된 뉴스를 기반으로 심층 감성 분석을 진행했습니다.'}"
         </p>
       </div>
 
-      {/* 3. 주요 판단 근거 (기본 2+2, 상세보기로 전체 확인) */}
+      {/* 3. 주요 판단 근거 */}
       {(positiveItems.length > 0 || negativeItems.length > 0) ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+            <span style={{ fontSize: '11px', fontWeight: '700', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               주요 판단 근거
             </span>
             <button
@@ -253,7 +245,7 @@ function SentimentCard({ analysis }) {
                 background: 'none',
                 fontSize: '11px',
                 fontWeight: '700',
-                color: '#6B7280',
+                color: 'var(--text-muted)',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -276,7 +268,7 @@ function SentimentCard({ analysis }) {
           ))}
         </div>
       ) : (
-        <p style={{ fontSize: '11px', color: '#9CA3AF', textAlign: 'center', margin: '8px 0 0 0' }}>
+        <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', margin: '8px 0 0 0' }}>
           ※ 세부 뉴스 키워드 분석 결과는 백엔드 분석 완료 후 업데이트됩니다.
         </p>
       )}
